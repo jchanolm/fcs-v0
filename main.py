@@ -55,19 +55,35 @@ async def get_tokens_data(request: TokensRequest) -> Dict[str, Any]:
     try:
         # Query that accepts a list of token addresses
         query = """
-        MATCH (wallet:Wallet)-[r:HOLDS]->(token:Token)
-         MATCH (wallet)-[rr:ACCOUNT]-(wc:Warpcast)
-        WHERE token.address in $token_addresses
-        WITH token, wc, sum(tofloat(r.balance)) as token_balance, sum(tofloat(wallet.balance)) as tokens_held, wc.fcCredScore as fcs 
-        WITH token, avg(fcs) as avg_fcs
-        RETURN COLLECT(DISTINCT({
-            token: token.address, 
-            name: token.name, 
-            symbol: token.symbol,
-            holders: token.holdersCount
-            avg_fcs: avg_fcs
-        }))  as token_fcs_data
-              """
+      
+      // For each token, find all wallet holders
+      MATCH (wallet:Wallet)-[:HOLDS]->(token)
+      
+      // Find all Warpcast accounts connected to these wallets (directly or through a path)
+      WITH token, wallet
+      OPTIONAL MATCH path = (wallet)-[:ACCOUNT*1..5]-(wc:Warpcast)
+      
+      // Group wallets by token and connected Warpcast account (if any)
+      WITH token, wc, collect(DISTINCT wallet) AS wallet_group
+      
+      // Calculate weight for each group
+      WITH token, wc, 
+           CASE WHEN wc IS NULL THEN size(wallet_group) // Each unconnected wallet counts as 1
+                ELSE 1 + coalesce(wc.fcCredScore, 0) // Connected wallets count as 1 + fcCredScore for the group
+           END AS group_weight
+      
+      // Sum all weights for each token
+      WITH token, sum(group_weight) AS weighted_holders, avg(wc.fcCredScore) as avgSocialCredScore
+      
+      // Return data for each token
+      RETURN  DISTINCT
+       token.address as address, 
+       token.name as name,
+        token.symbol as symbol,
+        tofloat(weighted_holders) as believerScore,
+        tofloat(token.holderCount) as holderCount,
+        avgSocialCredScore
+    """
 
         requested_token_addresses = [x.lower() for x in request.token_addresses]
         params = {"token_addresses": requested_token_addresses}
