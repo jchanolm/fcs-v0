@@ -49,9 +49,9 @@ async def root():
     return {"message": "Token API is running"}
 
 
-@app.post("/tokens-fc")
+@app.post("/token-believer-score")
 async def get_tokens_data(request: TokensRequest) -> Dict[str, Any]:
-    """Get token data from Neo4j based on token addresses (up to 25)"""
+    """Retrieve believer scores and supporting metadata for up to 25 Base token addresses"""
     try:
         # Query that accepts a list of token addresses
         query = """
