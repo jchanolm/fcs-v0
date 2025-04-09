@@ -48,6 +48,7 @@ class TokensRequest(BaseModel):
 async def root():
     return {"message": "Token API is running"}
 
+
 @app.post("/tokens-fc")
 async def get_tokens_data(request: TokensRequest) -> Dict[str, Any]:
     """Get token data from Neo4j based on token addresses (up to 25)"""
@@ -67,7 +68,9 @@ async def get_tokens_data(request: TokensRequest) -> Dict[str, Any]:
             avg_fcs: avg_fcs
         }))  as token_fcs_data
               """
-        params = {"token_addresses": request.token_addresses}
+
+        requested_token_addresses = [x.lower() for x in request.token_addresses]
+        params = {"token_addresses": requested_token_addresses}
         
         # Execute query
         results = execute_cypher(query, params)
