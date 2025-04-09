@@ -56,11 +56,8 @@ async def get_tokens_data(request: TokensRequest) -> Dict[str, Any]:
         # Query that accepts a list of token addresses
         query = """
         MATCH (wallet:Wallet)-[r:HELD]->(token:Token)
+         MATCH (wallet)-[rr:ACCOUNT]-(wc:Warpcast)
         WHERE token.address in $token_addresses
-        MATCH (wallet)-[rr:ACCOUNT]-(wc:Warpcast)
-        OPTIONAL MATCH (wc)-[:ACCOUNT]-(otherWallet:Wallet)
-        OPTIONAL MATCH (wc)-[:ACCOUNT]-(account:Account)
-        WHERE NOT account:Wallet
         WITH token, wc, sum(tofloat(r.balance)) as token_balance, sum(tofloat(wallet.balance)) as tokens_held, wc.fcCredScore as fcs 
         WITH token, avg(fcs) as avg_fcs
         RETURN COLLECT(DISTINCT({
@@ -73,6 +70,7 @@ async def get_tokens_data(request: TokensRequest) -> Dict[str, Any]:
         params = {"token_addresses": requested_token_addresses}
         
         # Execute query
+        print(query, requested_token_addresses)
         results = execute_cypher(query, params)
         
         # Process results
