@@ -55,7 +55,7 @@ async def get_tokens_data(request: TokensRequest) -> Dict[str, Any]:
     try:
         # Query that accepts a list of token addresses
         query = """
-        MATCH (wallet:Wallet)-[r:HELD]->(token:Token)
+        MATCH (wallet:Wallet)-[r:HOLDS]->(token:Token)
          MATCH (wallet)-[rr:ACCOUNT]-(wc:Warpcast)
         WHERE token.address in $token_addresses
         WITH token, wc, sum(tofloat(r.balance)) as token_balance, sum(tofloat(wallet.balance)) as tokens_held, wc.fcCredScore as fcs 
