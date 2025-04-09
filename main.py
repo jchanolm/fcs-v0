@@ -108,7 +108,7 @@ async def retrieve_token_believer_scores(request: TokensRequest) -> Dict[str, An
 @app.post("/token")
 async def get_token_data(request: TokensRequest) -> Dict[str, Any]:
     """Get data for a single token (redirects to /tokens endpoint)"""
-    return await get_tokens_data(request)
+    return await retrieve_token_believer_scores(request)
 
 @app.on_event("shutdown")
 async def shutdown_event():
