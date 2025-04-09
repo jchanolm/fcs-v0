@@ -50,7 +50,7 @@ async def root():
 
 
 @app.post("/token-believer-score")
-async def get_tokens_data(request: TokensRequest) -> Dict[str, Any]:
+async def retrieve_token_believer_scores(request: TokensRequest) -> Dict[str, Any]:
     """Retrieve believer scores and supporting metadata for up to 25 Base token addresses"""
     try:
         # Query that accepts a list of token addresses
