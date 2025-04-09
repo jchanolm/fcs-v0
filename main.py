@@ -62,6 +62,9 @@ async def get_tokens_data(request: TokensRequest) -> Dict[str, Any]:
         WITH token, avg(fcs) as avg_fcs
         RETURN COLLECT(DISTINCT({
             token: token.address, 
+            name: token.name, 
+            symbol: token.symbol,
+            holders: token.holdersCount
             avg_fcs: avg_fcs
         }))  as token_fcs_data
               """
