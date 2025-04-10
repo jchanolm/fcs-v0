@@ -62,28 +62,47 @@ class MiniappMentionData(BaseModel):
     mentions: int = Field(..., description="Number of mentions")
     fcsWeightedMentions: float = Field(..., description="FCS weighted mentions")
 
+# Define response models for the farstore-miniapp-mentions-counts endpoint
+class MiniappMention(BaseModel):
+    name: str
+    frameUrl: str
+    mentions: Optional[float] = 0.0
+    fcsWeightedMentions: Optional[float] = 0.0
+
+class MiniappMentionsData(BaseModel):
+    mentions: List[MiniappMention]
+
+class MiniappMentionsResponse(BaseModel):
+    data: MiniappMentionsData
+
 # Define routes
 @app.get("/")
 async def root():
     return {"message": "Token API is running"}
 
-@app.post("/farstore-miniapp-mentions-counts")
+@app.post("/farstore-miniapp-mentions-counts", response_model=MiniappMentionsResponse)
 async def farstore_miniapp_mentions(api_key: str = Query(..., description="API key for authentication")):
     """Get mentions data for miniapps from farstore"""
     # Validate API key
-    if api_key != FARSTORE_PASS:
+    if api_key != "password.lol":
         raise HTTPException(status_code=401, detail="Invalid API key")
     
     try:
-        # Updated Neo4j query to match the expected data structure
+        # Neo4j query to fetch miniapp mentions
         query = """
-        MATCH (m:Miniapp:Farstore)
-        RETURN COLLECT(DISTINCT {
+        MATCH
+            (m:Miniapp:Farstore)
+        WITH 
+            COLLECT(DISTINCT {
             name: m.name,
             frameUrl: m.frameUrl,
-            mentions: CASE WHEN m.mentionsAllTime IS NULL THEN 0 ELSE tointeger(m.allTimeMentions) END,
-            fcsWeightedMentions: CASE WHEN m.fcsWeightedMentions IS NULL THEN 0.0 ELSE tofloat(m.fcsWeightedMentions) END
-        }) as mentions_counts
+            mentions: tofloat(m.mentionsAllTime),
+            fcsWeightedMentions: tofloat(m.fcsWeightedMentions)
+            }) as mentions_counts
+        RETURN
+            {
+                mentions: mentions_counts
+            } as data
         """
         # Execute query
         results = execute_cypher(query)
@@ -92,12 +111,18 @@ async def farstore_miniapp_mentions(api_key: str = Query(..., description="API k
         if not results or len(results) == 0:
             raise HTTPException(status_code=404, detail="No miniapp mention data found")
         
-        # Directly return the mentions_counts array
-        miniapp_data = results[0]['mentions_counts']
-        if not miniapp_data:
-            raise HTTPException(status_code=404, detail="No miniapp mention data found")
-            
-        return miniapp_data
+        # Extract the data from the Neo4j result and convert it to the expected format
+        neo4j_data = results[0].get("data")
+        mentions_data = neo4j_data.get("mentions", [])
+        
+        # Create a valid response object
+        response_data = {
+            "data": {
+                "mentions": mentions_data
+            }
+        }
+        
+        return response_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
