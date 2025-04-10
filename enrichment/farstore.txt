@@ -1,0 +1,14 @@
+
+
+
+## Provisional search queries
+
+### All time
+
+```
+CALL db.index.fulltext.queryNodes("frames", "farma.vrypan.net") YIELD node, score 
+with count(distinct(node)) as count_nodes 
+match (m:Miniapp) where m.name = "Farma"
+set m.mentionsAllTime = m.mentionsAllTime + count_nodes 
+return m.name, m.mentionsAllTime
+```
