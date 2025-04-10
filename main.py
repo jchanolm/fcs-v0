@@ -81,7 +81,7 @@ async def farstore_miniapp_mentions(api_key: str = Query(..., description="API k
         RETURN COLLECT(DISTINCT {
             name: m.name,
             frameUrl: m.frameUrl,
-            mentions: CASE WHEN m.allTimeMentions IS NULL THEN 0 ELSE tointeger(m.allTimeMentions) END,
+            mentions: CASE WHEN m.mentionsAllTime IS NULL THEN 0 ELSE tointeger(m.allTimeMentions) END,
             fcsWeightedMentions: CASE WHEN m.fcsWeightedMentions IS NULL THEN 0.0 ELSE tofloat(m.fcsWeightedMentions) END
         }) as mentions_counts
         """
