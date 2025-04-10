@@ -66,8 +66,11 @@ class MiniappMentionData(BaseModel):
 class MiniappMention(BaseModel):
     name: str
     frameUrl: str
-    mentions: Optional[float] = 0.0
-    fcsWeightedMentions: Optional[float] = 0.0
+    mentionsAllTime: Optional[float] = 0.0
+    uniqueCasters: Optional[int] = 0
+    rawWeightedCasts: Optional[float] = 0.0
+    weightedCasts: Optional[float] = 0.0
+    avgFcsCredScore: Optional[float] = 0.0
 
 class MiniappMentionsData(BaseModel):
     mentions: List[MiniappMention]
@@ -96,8 +99,11 @@ async def farstore_miniapp_mentions(api_key: str = Query(..., description="API k
             COLLECT(DISTINCT {
             name: m.name,
             frameUrl: m.frameUrl,
-            mentions: tofloat(m.mentionsAllTime),
-            fcsWeightedMentions: tofloat(m.fcsWeightedMentions)
+            mentionsAllTime: tofloat(m.mentionsAllTime),
+            uniqueCasters: tointeger(m.uniqueCasters),
+            rawWeightedCasts: tofloat(m.rawWeightedCasts),
+            weightedCasts: tofloat(m.weightedCastsDiversityMultiplier),
+            avgFcsCredScore: tofloat(m.avgCredScore)
             }) as mentions_counts
         RETURN
             {

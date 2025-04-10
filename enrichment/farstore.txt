@@ -6,9 +6,27 @@
 ### All time
 
 ```
-CALL db.index.fulltext.queryNodes("frames", "farma.vrypan.net") YIELD node, score 
-with count(distinct(node)) as count_nodes 
-match (m:Miniapp) where m.name = "Farma"
-set m.mentionsAllTime = m.mentionsAllTime + count_nodes 
-return m.name, m.mentionsAllTime
-```
+CALL db.index.fulltext.queryNodes("frames", "far-guesser.vercel.app") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "FarGuesser"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "FarGuesser"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier```
