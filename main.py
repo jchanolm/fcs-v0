@@ -1,9 +1,14 @@
 import os
+import logging
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field, validator
 from typing import Dict, Any, List, Optional
 from neo4j import GraphDatabase
 from dotenv import load_dotenv
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -17,10 +22,25 @@ NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 NEO4J_DATABASE = None
 
 # Initialize Neo4j driver
-neo4j_driver = GraphDatabase.driver(
-    NEO4J_URI, 
-    auth=(NEO4J_USERNAME, NEO4J_PASSWORD)
-)
+try:
+    logger.info(f"Connecting to Neo4j with URI: {NEO4J_URI}")
+    logger.info(f"Username: {NEO4J_USERNAME}")
+    logger.info(f"Password: {'*' * len(NEO4J_PASSWORD) if NEO4J_PASSWORD else 'None'}")
+    
+    neo4j_driver = GraphDatabase.driver(
+        NEO4J_URI, 
+        auth=(NEO4J_USERNAME, NEO4J_PASSWORD)
+    )
+    
+    # Test the connection right away
+    with neo4j_driver.session() as session:
+        result = session.run("RETURN 1 as test")
+        for record in result:
+            logger.info(f"Neo4j connection test successful: {record['test']}")
+            
+except Exception as e:
+    logger.error(f"Neo4j connection error: {str(e)}")
+    # Don't raise here, just log the error
 
 # Initialize FastAPI
 app = FastAPI(title="Token API", description="API for querying token data from Neo4j")
@@ -175,7 +195,7 @@ async def retrieve_token_believer_scores(request: TokensRequest) -> TokenRespons
         params = {"token_addresses": requested_token_addresses}
         
         # Execute query
-        print(f"Querying for tokens: {requested_token_addresses}")
+        logger.info(f"Querying for tokens: {requested_token_addresses}")
         results = execute_cypher(query, params)
         
         # Process results
@@ -194,6 +214,7 @@ async def retrieve_token_believer_scores(request: TokensRequest) -> TokenRespons
         
         return response_data
     except Exception as e:
+        logger.error(f"Error retrieving token believer scores: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 # Keep the original single token endpoint for backward compatibility
@@ -206,6 +227,7 @@ async def get_token_data(request: TokensRequest) -> TokenResponseData:
 @app.on_event("shutdown")
 async def shutdown_event():
     """Close Neo4j driver connection when app shuts down"""
+    logger.info("Shutting down application, closing Neo4j connection")
     neo4j_driver.close()
 
 if __name__ == "__main__":
