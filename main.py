@@ -21,6 +21,10 @@ NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 # Database will be None, which will use the default database
 NEO4J_DATABASE = None
 
+print(NEO4J_URI)
+print(NEO4J_PASSWORD)
+print(NEO4J_USERNAME)
+
 # Initialize Neo4j driver
 try:
     logger.info(f"Connecting to Neo4j with URI: {NEO4J_URI}")
@@ -147,6 +151,7 @@ async def farstore_miniapp_mentions(api_key: str = Query(..., description="API k
                 "mentions": mentions_data
             }
         }
+        print(response_data)
         
         return response_data
     except Exception as e:
