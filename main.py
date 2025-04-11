@@ -5,7 +5,7 @@ import json
 import logging
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Query
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, root_validator
 from typing import Dict, Any, List, Optional, Union
 from neo4j import GraphDatabase
 from dotenv import load_dotenv
@@ -59,19 +59,39 @@ def execute_cypher(query, params=None):
 
 # Request models
 class TokensRequest(BaseModel):
-    token_addresses: List[str] = Field(..., description="List of token addresses to query")
+    api_key: str = os.getenv("CLANK_PASS")
 
 # Response models
+# Update the TokenData model to match the return types in the query
 class TokenData(BaseModel):
     address: str = Field(..., description="Token contract address")
     name: Optional[str] = Field(None, description="Token name")
     symbol: Optional[str] = Field(None, description="Token $symbol")
-    believerScore: float = Field(..., description="Total holders weighted by social reputation of holders")
-    holderCount: float = Field(..., description="Total unique wallet holders")
+    believerScore: Optional[float] = Field(None, description="Normalized believer score (0-100)")
+    rawBelieverScore: Optional[float] = Field(None, description="Raw believer score before adjustments")
+    diversityAdjustedScore: Optional[float] = Field(None, description="Believer score adjusted for token concentration")
+    marketAdjustedScore: Optional[float] = Field(None, description="Believer score adjusted for market cap ratio")
+    holderToMarketCapRatio: Optional[float] = Field(None, description="Ratio of holders to market cap")
+    marketCap: Optional[float] = Field(None, description="Token market capitalization")
+    walletCount: Optional[float] = Field(None, description="Total unique wallet holders")
+    warpcastWallets: Optional[float] = Field(None, description="Number of wallets connected to Warpcast accounts")
+    warpcastPercentage: Optional[float] = Field(None, description="Percentage of wallets connected to Warpcast")
     avgSocialCredScore: Optional[float] = Field(None, description="Average holder social credibility")
+    totalSupply: Optional[float] = Field(None, description="Total token supply")
     
     class Config:
         extra = "allow"  # Allow extra fields that may be returned by the API
+        
+    @root_validator(pre=True)
+    def handle_null_values(cls, values):
+        # Convert None or empty values to appropriate defaults
+        for field in values:
+            if values[field] is None and field in ['believerScore', 'rawBelieverScore', 
+                                                  'diversityAdjustedScore', 'marketAdjustedScore',
+                                                  'holderToMarketCapRatio', 'marketCap', 'walletCount',
+                                                  'warpcastWallets', 'warpcastPercentage', 'totalSupply']:
+                values[field] = 0.0
+        return values
 
 class TokenResponseData(BaseModel):
     fcs_data: List[TokenData] = Field(..., description="List of token data with believer scores")
@@ -91,12 +111,21 @@ class MiniappMention(BaseModel):
     rawWeightedCasts: Optional[float] = 0.0
     weightedCasts: Optional[float] = 0.0
     avgFcsCredScore: Optional[float] = 0.0
+    
+    class Config:
+        extra = "allow"  # Allow extra fields
 
 class MiniappMentionsData(BaseModel):
-    mentions: List[MiniappMention]
+    mentions: List[Dict[str, Any]]
+    
+    class Config:
+        extra = "allow"  # Allow extra fields
 
 class MiniappMentionsResponse(BaseModel):
-    data: MiniappMentionsData
+    data: Dict[str, Any]
+    
+    class Config:
+        extra = "allow"  # Allow extra fields
 
 # Define models for casts search
 class CastRequest(BaseModel):
@@ -125,15 +154,24 @@ class RecentCast(BaseModel):
         if hasattr(v, 'iso_format'):
             return v.iso_format()
         return v
+    
+    class Config:
+        extra = "allow"  # Allow extra fields
 
 class Promoter(BaseModel):
     username: str = Field(..., description="Social media username")
     fid: int = Field(..., description="Farcaster user identifier")
     fcCredScore: float = Field(..., description="Farcaster credibility score")
-    recentCasts: List[RecentCast] = Field(..., description="Recent user posts")
+    recentCasts: List[Dict[str, Any]] = Field(..., description="Recent user posts")
+    
+    class Config:
+        extra = "allow"  # Allow extra fields
 
 class KeyPromotersData(BaseModel):
-    promoters: List[Promoter]
+    promoters: List[Dict[str, Any]]
+    
+    class Config:
+        extra = "allow"  # Allow extra fields
 
 class KeyPromotersRequest(BaseModel):
     miniapp_name: str = Field(..., description="Name of the miniapp to retrieve key promoters for")
@@ -168,6 +206,9 @@ class CastMetricsData(BaseModel):
     rawWeightedScore: float = Field(..., description="Unmodified credibility score")
     diversityMultiplier: float = Field(..., description="Author diversity coefficient - penalizes spammers")
     weighted_score: float = Field(..., description="Final credibility score")
+    
+    class Config:
+        extra = "allow"  # Allow extra fields
 
 class WeightedCastsResponseData(BaseModel):
     casts: List[Dict[str, Any]] = Field(..., description="Matching casts")
@@ -318,52 +359,205 @@ async def retrieve_miniapp_key_promoters(
     
     
 
-@app.post("/token-believer-score")
+@app.post(
+    "/token-believer-score",
+    summary="Get comprehensive token believer scores",
+    description="Retrieves advanced believer scores with market cap adjustments and concentration metrics for tokens",
+    tags=["Tokens"],
+    responses={
+        200: {"description": "Successfully retrieved token believer scores"},
+        401: {"description": "Unauthorized - Invalid API key"},
+        404: {"description": "No tokens found with the provided addresses"},
+        500: {"description": "Internal Server Error"}
+    }
+)
 async def retrieve_token_believer_scores(request: TokensRequest) -> Dict[str, Any]:
-    """Retrieve believer scores and supporting metadata for up to 25 Base token addresses"""
-    try:
-        # Query that accepts a list of token addresses
-        query = """
-      // Filter tokens by the provided addresses
-      MATCH (token:Token)
-      WHERE token.address IN $token_addresses
-      
-      // For each token, find all wallet holders
-      MATCH (wallet:Wallet)-[:HOLDS]->(token)
-      
-      // Find all Warpcast accounts connected to these wallets (directly or through a path)
-      WITH token, wallet
-      OPTIONAL MATCH path = (wallet)-[:ACCOUNT*1..5]-(wc:Warpcast)
-      
-      // Group wallets by token and connected Warpcast account (if any)
-      WITH token, wc, collect(DISTINCT wallet) AS wallet_group
-      
-      // Calculate weight for each group
-      WITH token, wc, 
-           CASE WHEN wc IS NULL THEN size(wallet_group) // Each unconnected wallet counts as 1
-                ELSE 1 + coalesce(wc.fcCredScore, 0) // Connected wallets count as 1 + fcCredScore for the group
-           END AS group_weight
-      
-      // Sum all weights for each token
-      WITH token, sum(group_weight) AS weighted_holders, avg(wc.fcCredScore) as avgSocialCredScore
-      
-      // Return data for each token
-      RETURN DISTINCT
-       token.address as address, 
-       token.name as name,
-       token.symbol as symbol,
-       tofloat(weighted_holders) as believerScore,
-       tofloat(token.holderCount) as holderCount,
-       avgSocialCredScore
     """
+    Retrieve comprehensive believer scores and supporting metadata for token addresses
+    
+    - Requires valid API key for authentication
+    - Returns normalized believer scores (0-100) with detailed metrics
+    - Includes market cap adjustments, token concentration, and social metrics
+    - Provides raw and adjusted scores for transparency
+    """
+    # Validate API key
+    if request.api_key != os.getenv("CLANK_PASS"):
+        raise HTTPException(status_code=401, detail="Invalid API key")
+        
+    try:
+        # Advanced query that calculates normalized believer scores with market cap adjustments
+        query = """
+        // First, find necessary statistics across all tokens
+        MATCH (token:Token)
+        WITH token, token.marketCap AS marketCap
+        // Calculate believer score without market cap factor first
+        MATCH (wallet:Wallet)-[r:HOLDS]->(token:Token)
+        WITH token, marketCap, count(wallet) AS num_wallets, collect(wallet) AS wallets
+        // Count wallets connected to Warpcast
+        MATCH (w:Wallet)-[r:HOLDS]->(token)
+        MATCH (w)-[:ACCOUNT*1..5]-(wc:Warpcast:Account)
+        WITH token, marketCap, num_wallets, count(DISTINCT w) AS warpcast_wallets
+        // Calculate percentage of wallets connected to Warpcast
+        WITH token, marketCap, num_wallets, warpcast_wallets,
+             CASE 
+                  WHEN num_wallets = 0 THEN 0.0
+                  ELSE (toFloat(warpcast_wallets) * 100.0 / num_wallets)
+             END AS warpcast_percentage
 
-        requested_token_addresses = [x.lower() for x in request.token_addresses]
-        params = {"token_addresses": requested_token_addresses}
+        // Recalculate full believer score
+        MATCH (wallet:Wallet)-[r:HOLDS]->(token)
+        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, wallet, r.balance AS balance
+        OPTIONAL MATCH path = (wallet)-[:ACCOUNT*1..5]-(wc:Warpcast)
+        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, wc, wallet, balance
+        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage,
+             // Calculate total balance for this token
+             sum(balance) AS total_balance,
+             // For Gini calculation
+             collect({wallet: wallet, balance: balance}) AS wallet_data,
+             // Calculate social data
+             avg(wc.fcCredScore) AS avgSocialCredScore
+
+        // Calculate concentration score
+        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, total_balance, wallet_data, avgSocialCredScore
+        UNWIND wallet_data AS wallet_item
+        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, total_balance, wallet_item.balance/total_balance AS balance_fraction, avgSocialCredScore
+        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, total_balance, 
+             // Calculate concentration using HHI
+             sum(balance_fraction * balance_fraction) AS concentration_index,
+             avgSocialCredScore
+             
+        // Calculate believer score with concentration penalty
+        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, total_balance,
+             // Concentration penalty - convert HHI to diversity score (1 - HHI)
+             (1.0 - concentration_index) AS concentration_multiplier,
+             avgSocialCredScore
+
+        // Calculate standard believer score
+        MATCH (wallet:Wallet)-[r:HOLDS]->(token)
+        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, wallet, concentration_multiplier, avgSocialCredScore, total_balance
+        OPTIONAL MATCH path = (wallet)-[:ACCOUNT*1..5]-(wc:Warpcast)
+        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, wc, collect(DISTINCT wallet) AS wallet_group, concentration_multiplier, avgSocialCredScore, total_balance
+        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, wc, wallet_group, concentration_multiplier, avgSocialCredScore, total_balance,
+             CASE WHEN wc IS NULL THEN size(wallet_group)
+                  ELSE 1 + coalesce(wc.fcCredScore, 0)
+             END AS group_weight
+
+        // Calculate raw and diversity-adjusted believer scores
+        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, 
+             sum(group_weight) AS raw_score,
+             concentration_multiplier, 
+             avgSocialCredScore,
+             total_balance
+
+        // Apply diversity adjustment
+        WITH token,
+             raw_score AS raw_believer_score,
+             raw_score * concentration_multiplier AS diversity_adjusted_score,
+             marketCap,
+             num_wallets,
+             warpcast_wallets,
+             warpcast_percentage,
+             avgSocialCredScore,
+             total_balance
+
+        // Calculate holder-to-market cap ratio
+        WITH token, 
+             raw_believer_score,
+             diversity_adjusted_score,
+             marketCap,
+             num_wallets,
+             warpcast_wallets,
+             warpcast_percentage,
+             avgSocialCredScore,
+             total_balance,
+             // Direct holder-to-market cap ratio
+             CASE 
+                  WHEN marketCap <= 0 THEN 999999999.0  // Prevent division by zero
+                  ELSE toFloat(num_wallets) / marketCap 
+             END AS holder_mcap_ratio
+
+        // Apply LESS AGGRESSIVE tiered market cap penalty
+        WITH token, 
+             raw_believer_score,
+             diversity_adjusted_score,
+             // Apply more forgiving tiered penalties
+             CASE 
+                  WHEN holder_mcap_ratio > 2.0 THEN diversity_adjusted_score * 0.05  // Still severe but less extreme (95% reduction)
+                  WHEN holder_mcap_ratio > 1.0 THEN diversity_adjusted_score * 0.25  // Less severe (75% reduction)
+                  WHEN holder_mcap_ratio > 0.5 THEN diversity_adjusted_score * 0.50  // Moderate (50% reduction)
+                  WHEN holder_mcap_ratio > 0.2 THEN diversity_adjusted_score * 0.75  // Mild (25% reduction)
+                  ELSE diversity_adjusted_score  // No penalty
+             END AS market_adjusted_score,
+             marketCap,
+             num_wallets,
+             warpcast_wallets,
+             warpcast_percentage,
+             avgSocialCredScore,
+             total_balance,
+             holder_mcap_ratio
+
+        // Get min/max values for normalization
+        WITH 
+             MIN(market_adjusted_score) AS min_score, 
+             MAX(market_adjusted_score) AS max_score,
+             COLLECT({
+                  token: token, 
+                  raw_score: raw_believer_score,
+                  diversity_score: diversity_adjusted_score,
+                  market_score: market_adjusted_score,
+                  ratio: holder_mcap_ratio,
+                  marketCap: marketCap,
+                  num_wallets: num_wallets,
+                  warpcast_wallets: warpcast_wallets,
+                  warpcast_percentage: warpcast_percentage,
+                  avg_social: avgSocialCredScore,
+                  total_balance: total_balance
+             }) AS all_token_data
+
+        // Normalize scores to 0-100
+        UNWIND all_token_data AS token_data
+        WITH token_data.token AS token, 
+             token_data.raw_score AS raw_believer_score,
+             token_data.diversity_score AS diversity_adjusted_score,
+             token_data.market_score AS market_adjusted_score,
+             token_data.ratio AS holder_mcap_ratio,
+             token_data.marketCap AS marketCap,
+             token_data.num_wallets AS num_wallets,
+             token_data.warpcast_wallets AS warpcast_wallets,
+             token_data.warpcast_percentage AS warpcast_percentage,
+             token_data.avg_social AS avgSocialCredScore,
+             token_data.total_balance AS total_balance,
+             min_score, max_score
+
+        WITH token, raw_believer_score, diversity_adjusted_score, market_adjusted_score, holder_mcap_ratio, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, avgSocialCredScore, total_balance,
+             // Normalize to 0-100 scale
+             CASE 
+                  WHEN max_score = min_score THEN 50.0 // Default to middle value if all scores are equal
+                  ELSE 100.0 * (market_adjusted_score - min_score) / (max_score - min_score)
+             END AS normalized_believer_score
+        RETURN
+            token.address AS address, 
+            token.name AS name,
+            token.symbol AS symbol,
+            tofloat(normalized_believer_score) AS believerScore,
+            tofloat(raw_believer_score) AS rawBelieverScore,
+            tofloat(diversity_adjusted_score) AS diversityAdjustedScore,
+            tofloat(market_adjusted_score) AS marketAdjustedScore,
+            tofloat(holder_mcap_ratio) AS holderToMarketCapRatio,
+            tofloat(marketCap) AS marketCap,
+            tofloat(num_wallets) AS walletCount,
+            tofloat(warpcast_wallets) AS warpcastWallets,
+            tofloat(warpcast_percentage) AS warpcastPercentage,
+            avgSocialCredScore,
+            tofloat(total_balance) AS totalSupply
+        ORDER BY believerScore DESC
+        """
+
+        params = {}
         
         # Execute query
-        logger.info(f"Querying for tokens: {requested_token_addresses}")
+        logger.info("Querying for all tokens")
         results = execute_cypher(query, params)
-        
         # Process results
         if not results:
             raise HTTPException(status_code=404, detail="No tokens found with the provided addresses")
@@ -378,16 +572,10 @@ async def retrieve_token_believer_scores(request: TokensRequest) -> Dict[str, An
         
         response_data = TokenResponseData(fcs_data=token_list)
         
-        return response_data
+        return response_data.model_dump()
     except Exception as e:
         logger.error(f"Error retrieving token believer scores: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-
-# Keep the original single token endpoint for backward compatibility
-@app.post("/token")
-async def get_token_data(request: TokensRequest) -> Dict[str, Any]:
-    """Get data for a single token (redirects to /tokens endpoint)"""
-    return await retrieve_token_believer_scores(request)
 
 
 def clean_query_for_lucene(user_query):
