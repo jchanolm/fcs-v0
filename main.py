@@ -327,7 +327,8 @@ def clean_query_for_lucene(user_query):
 
 @app.post("/casts-search-weighted")
 async def fetch_weighted_casts(
-    request: CastRequest
+    request: CastRequest,
+    api_key: str = Query(..., description="API key for authentication")
 ) -> Dict:
     """
     Get matching casts and related metadata using a hybrid Neynar API + Neo4j approach.
@@ -336,6 +337,9 @@ async def fetch_weighted_casts(
     We'll also keep calling Neynar (with their 'cursor') until we get a cast whose timestamp
     is <= 2025-03-31, or Neynar indicates no more results.
     """
+    # Validate API key
+    if api_key != os.getenv('FART_PASS'):
+        raise HTTPException(status_code=401, detail="Invalid API key")
     
     try:
         # Check API usage limits
@@ -426,7 +430,7 @@ async def fetch_weighted_casts(
         # 2) Repeated calls to Neynar with cursor, stopping at 2025-03-31
         # ---------------------------------------------------------------------
         neynar_casts = []
-        neynar_api_key = os.getenv("NEYNAR_API_KEY")
+        neynar_api_key = NEYNAR_API_KEY
         
         if not neynar_api_key:
             logger.warning("Neynar API key not found; skipping Neynar calls.")
@@ -800,7 +804,7 @@ async def fetch_weighted_casts(
         logger.error(f"Error retrieving weighted casts: {str(e)}")
         logger.exception("Detailed traceback:")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-    
+        
 @app.on_event("shutdown")
 async def shutdown_event():
     """Close Neo4j driver connection when app shuts down"""
