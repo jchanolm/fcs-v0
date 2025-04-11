@@ -103,7 +103,7 @@ class MiniappMentionsResponse(BaseModel):
 class RecentCast(BaseModel):
     text: str
     hash: str
-    timestamp: Any
+    timestamp: str
     
     @validator('timestamp')
     def validate_timestamp(cls, v):
@@ -134,7 +134,7 @@ async def root():
 async def farstore_miniapp_mentions(api_key: str = Query(..., description="API key for authentication")):
     """Get mentions data for miniapps from farstore"""
     # Validate API key
-    if api_key != "password.lol":
+    if api_key != FARSTORE_PASS:
         raise HTTPException(status_code=401, detail="Invalid API key")
     
     try:
@@ -182,8 +182,12 @@ async def farstore_miniapp_mentions(api_key: str = Query(..., description="API k
     
 
 @app.post("/farstore-miniapp-key-promoters", response_model=KeyPromotersData)
-async def retrieve_miniapp_key_promoters(request: KeyPromotersRequest) -> KeyPromotersData:
+async def retrieve_miniapp_key_promoters(request: KeyPromotersRequest, api_key: str = Query(..., description="API key for authentication")) -> KeyPromotersData:
     """Retrieve key promoters for provided miniapp"""
+    # Validate API key
+    if api_key != FARSTORE_PASS:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+        
     try: 
         ### get casts
         query = """
@@ -197,7 +201,7 @@ async def retrieve_miniapp_key_promoters(request: KeyPromotersRequest) -> KeyPro
         MATCH (wc)-[:POSTED]->(cast)
         WITH wc, username, fid, fcCredScore, cast
         ORDER BY cast.timestamp DESC
-        WITH wc, username, fid, fcCredScore, collect({text: cast.text, hash: cast.hash, timestamp: cast.timestamp})[0..3] as recentCasts
+        WITH wc, username, fid, fcCredScore, collect({text: cast.text, hash: cast.hash, timestamp: toString(cast.timestamp)})[0..3] as recentCasts
         WITH collect({
             username: username,
             fid: fid,
