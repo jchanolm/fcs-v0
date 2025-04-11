@@ -65,10 +65,10 @@ class TokensRequest(BaseModel):
 class TokenData(BaseModel):
     address: str = Field(..., description="Token contract address")
     name: Optional[str] = Field(None, description="Token name")
-    symbol: Optional[str] = Field(None, description="Token symbol")
-    believerScore: float = Field(..., description="Calculated believer score for the token")
-    holderCount: float = Field(..., description="Number of token holders")
-    avgSocialCredScore: Optional[float] = Field(None, description="Average social credibility score")
+    symbol: Optional[str] = Field(None, description="Token $symbol")
+    believerScore: float = Field(..., description="Total holders weighted by social reputation of holders")
+    holderCount: float = Field(..., description="Total unique wallet holders")
+    avgSocialCredScore: Optional[float] = Field(None, description="Average holder social credibility")
 
 class TokenResponseData(BaseModel):
     fcs_data: List[TokenData] = Field(..., description="List of token data with believer scores")
@@ -112,9 +112,9 @@ class CastResponseData(BaseModel):
     pagination: PaginationInfo    
 
 class RecentCast(BaseModel):
-    text: str
-    hash: str
-    timestamp: str
+    text: str = Field(..., description="Cast content")
+    hash: str = Field(..., description="Unique cast identifier")
+    timestamp: str = Field(..., description="Cast creation timestamp")
     
     @validator('timestamp')
     def validate_timestamp(cls, v):
@@ -124,16 +124,49 @@ class RecentCast(BaseModel):
         return v
 
 class Promoter(BaseModel):
-    username: str
-    fid: int
-    fcCredScore: float
-    recentCasts: List[RecentCast]
+    username: str = Field(..., description="Social media username")
+    fid: int = Field(..., description="Farcaster user identifier")
+    fcCredScore: float = Field(..., description="Farcaster credibility score")
+    recentCasts: List[RecentCast] = Field(..., description="Recent user posts")
 
 class KeyPromotersData(BaseModel):
     promoters: List[Promoter]
 
 class KeyPromotersRequest(BaseModel):
     miniapp_name: str = Field(..., description="Name of the miniapp to retrieve key promoters for")
+
+# Define models for weighted casts search response
+class Cast(BaseModel):
+    hash: str = Field(..., description="Unique cast identifier")
+    timestamp: str = Field(..., description="Cast creation timestamp")
+    text: str = Field(..., description="Cast content")
+    author_username: str = Field(..., description="Author's username")
+    author_fid: int = Field(..., description="Farcaster user ID")
+    author_bio: Optional[str] = Field(None, description="Author's profile bio")
+    author_farcaster_cred_score: Optional[float] = Field(None, description="Author credibility score")
+    wallet_eth_stables_value_usd: Optional[float] = Field(
+        None, 
+        description="Total ETH/USDC balance across Mainnet, Base, Optimism, Arbitrum"
+    )
+    farcaster_usdc_rewards_earned: Optional[float] = Field(
+        None, 
+        description="Total USDC rewards from creator, developer, and referral programs"
+    )
+    linked_accounts: List[Dict] = Field(..., description="Linked social accounts")
+    linked_wallets: List[Dict] = Field(..., description="Linked blockchain wallets")
+    source: Optional[str] = Field(None, description="Data source")
+
+class CastMetrics(BaseModel):
+    casts: int = Field(..., description="Total matching casts")
+    uniqueAuthors: int = Field(..., description="Distinct cast authors")
+    rawWeightedScore: float = Field(..., description="Unmodified credibility score")
+    diversityMultiplier: float = Field(..., description="Author diversity coefficient - penalizes spammers. I.e. reduces the score when mentions are concentrated among a small group of users rather than distributed across many different users. A lower value indicates mentions are coming from fewer unique authors, which may suggest artificial promotion or spam.")
+    weighted_score: float = Field(..., description="Final credibility score")
+
+class WeightedCastsResponse(BaseModel):
+    casts: List[Dict] = Field(..., description="Matching casts")
+    total: int = Field(..., description="Total cast count")
+    metrics: CastMetrics = Field(..., description="Cast collection metrics")
 
 # Define routes
 @app.get("/")
@@ -366,6 +399,7 @@ def clean_query_for_lucene(user_query):
 
 @app.post(
     "/casts-search-weighted",
+    response_model=WeightedCastsResponse,
     summary="Search for casts with weighted scoring",
     description="Search for casts matching a query with weighted scoring based on author credibility. API key required for authentication.",
     tags=["Search"],
@@ -379,16 +413,12 @@ def clean_query_for_lucene(user_query):
 async def fetch_weighted_casts(
     request: CastRequest,
     api_key: str = Query(..., description="API key for authentication", example="fafakjfakjfa.lol")
-) -> Dict:
+) -> WeightedCastsResponse:
     """
     Get matching casts and related metadata using a hybrid Neynar API + Neo4j approach.
     Returns all matching results without pagination.
-
-    We'll also keep calling Neynar (with their 'cursor') until we get a cast whose timestamp
-    is <= 2025-03-31, or Neynar indicates no more results.
     
     - Requires valid API key for authentication
-    - Returns enriched cast data from both Neo4j and Neynar
     """
     # Validate API key
     if api_key != os.getenv('FART_PASS'):
