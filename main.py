@@ -141,9 +141,28 @@ async def root():
     return {"message": "Token API is running"}
 
 
-@app.post("/farstore-miniapp-mentions-counts", response_model=MiniappMentionsResponse)
-async def farstore_miniapp_mentions(api_key: str = Query(..., description="API key for authentication")):
-    """Get mentions data for miniapps from farstore"""
+@app.post(
+    "/farstore-miniapp-mentions-counts", 
+    response_model=MiniappMentionsResponse,
+    summary="Get mentions data for miniapps",
+    description="Retrieves mention counts and statistics for miniapps from Farstore. API key required for authentication.",
+    tags=["Farstore"],
+    responses={
+        200: {"description": "Successfully retrieved miniapp mentions data"},
+        401: {"description": "Unauthorized - Invalid API key"},
+        404: {"description": "No miniapp mention data found"},
+        500: {"description": "Internal Server Error"}
+    }
+)
+async def farstore_miniapp_mentions(
+    api_key: str = Query(..., description="API key for authentication", example="something.something")
+):
+    """
+    Get mentions data for miniapps from farstore
+    
+    - Requires valid API key for authentication
+    - Returns mentions counts, weighted scores, and unique casters for each miniapp
+    """
     # Validate API key
     if api_key != FARSTORE_PASS:
         raise HTTPException(status_code=401, detail="Invalid API key")
@@ -191,9 +210,29 @@ async def farstore_miniapp_mentions(api_key: str = Query(..., description="API k
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     
 
-@app.post("/farstore-miniapp-key-promoters", response_model=KeyPromotersData)
-async def retrieve_miniapp_key_promoters(request: KeyPromotersRequest, api_key: str = Query(..., description="API key for authentication")) -> KeyPromotersData:
-    """Retrieve key promoters for provided miniapp"""
+@app.post(
+    "/farstore-miniapp-key-promoters", 
+    response_model=KeyPromotersData,
+    summary="Get key promoters for a miniapp",
+    description="Retrieves key promoters and their recent casts for a specified miniapp. API key required for authentication.",
+    tags=["Farstore"],
+    responses={
+        200: {"description": "Successfully retrieved key promoters data"},
+        401: {"description": "Unauthorized - Invalid API key"},
+        404: {"description": "No key promoters found"},
+        500: {"description": "Internal Server Error"}
+    }
+)
+async def retrieve_miniapp_key_promoters(
+    request: KeyPromotersRequest, 
+    api_key: str = Query(..., description="API key for authentication", example="password.lol")
+) -> KeyPromotersData:
+    """
+    Retrieve key promoters for provided miniapp
+    
+    - Requires valid API key for authentication
+    - Returns top promoters with their FID, username, credibility score, and recent casts
+    """
     # Validate API key
     if api_key != FARSTORE_PASS:
         raise HTTPException(status_code=401, detail="Invalid API key")
@@ -325,10 +364,21 @@ def clean_query_for_lucene(user_query):
     
     return cleaned_query
 
-@app.post("/casts-search-weighted")
+@app.post(
+    "/casts-search-weighted",
+    summary="Search for casts with weighted scoring",
+    description="Search for casts matching a query with weighted scoring based on author credibility. API key required for authentication.",
+    tags=["Search"],
+    responses={
+        200: {"description": "Successfully retrieved weighted casts"},
+        401: {"description": "Unauthorized - Invalid API key"},
+        429: {"description": "Too Many Requests - Usage quota exceeded"},
+        500: {"description": "Internal Server Error"}
+    }
+)
 async def fetch_weighted_casts(
     request: CastRequest,
-    api_key: str = Query(..., description="API key for authentication")
+    api_key: str = Query(..., description="API key for authentication", example="fafakjfakjfa.lol")
 ) -> Dict:
     """
     Get matching casts and related metadata using a hybrid Neynar API + Neo4j approach.
@@ -336,6 +386,9 @@ async def fetch_weighted_casts(
 
     We'll also keep calling Neynar (with their 'cursor') until we get a cast whose timestamp
     is <= 2025-03-31, or Neynar indicates no more results.
+    
+    - Requires valid API key for authentication
+    - Returns enriched cast data from both Neo4j and Neynar
     """
     # Validate API key
     if api_key != os.getenv('FART_PASS'):
