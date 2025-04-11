@@ -5,11 +5,11 @@ import json
 import logging
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from typing import Dict, Any, List, Optional, Union
 from neo4j import GraphDatabase
 from dotenv import load_dotenv
-import datetime
+
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -111,7 +111,6 @@ class CastResponseData(BaseModel):
     casts: List[Dict]
     pagination: PaginationInfo    
 
-=======
 class RecentCast(BaseModel):
     text: str
     hash: str
