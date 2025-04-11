@@ -263,6 +263,9 @@ async def fetch_weighted_casts(
     """
     
     try:
+        logger.info(f"Starting weighted casts search with query: '{request.query}'")
+        start_time = datetime.now()
+        
         # Define combined_casts early to avoid the issue
         combined_casts = []
         
@@ -277,9 +280,10 @@ async def fetch_weighted_casts(
         #    We'll just do a single pass for all relevant casts from Graph
         # ---------------------------------------------------------------------
         neo4j_query = """
-        CALL db.index.fulltext.queryNodes("casts", $query) YIELD node
-        WITH node
-        WHERE node.timestamp IS NOT NULL
+        CALL db.index.fulltext.queryNodes("casts", $query) YIELD node, score
+        WITH node, score 
+        WHERE score > 4
+        AND node.timestamp IS NOT NULL
         MATCH (node)-[:POSTED]-(wc:Warpcast:Account)
         OPTIONAL MATCH (wc)-[:ACCOUNT]-(wallet:Wallet)
         OPTIONAL MATCH (wc)-[:ACCOUNT]-(account:Account)
@@ -314,11 +318,22 @@ async def fetch_weighted_casts(
         
         neo4j_params = {"query": clean_query}
         logger.info(f"Executing Neo4j query with params: {neo4j_params}")
+        neo4j_start_time = datetime.now()
         
         neo4j_results = execute_cypher(neo4j_query, neo4j_params)
-        logger.info(f"Neo4j query returned {len(neo4j_results)} results")
+        neo4j_end_time = datetime.now()
+        neo4j_duration = (neo4j_end_time - neo4j_start_time).total_seconds()
+        logger.info(f"Neo4j query completed in {neo4j_duration:.2f} seconds, returned {len(neo4j_results)} results")
         
         neo4j_casts = [record.get("cast") for record in neo4j_results]
+        
+        # Log a sample of the Neo4j results (last 5)
+        if neo4j_casts:
+            sample_size = min(5, len(neo4j_casts))
+            logger.info(f"Sample of last {sample_size} Neo4j casts:")
+            for i, cast in enumerate(neo4j_casts[-sample_size:]):
+                logger.info(f"  Cast {i+1}: hash={cast.get('hash')}, author={cast.get('author_username')}, timestamp={cast.get('timestamp')}")
+                logger.info(f"    Text preview: {cast.get('text')[:50]}...")
         
         # ---------------------------------------------------------------------
         # 2) Repeated calls to Neynar with cursor, stopping at 2025-03-31
@@ -343,6 +358,8 @@ async def fetch_weighted_casts(
             # We'll start with no `cursor`
             current_cursor = None
             keep_going = True
+            neynar_call_count = 0
+            neynar_start_time = datetime.now()
             
             while keep_going:
                 params = {
@@ -353,11 +370,16 @@ async def fetch_weighted_casts(
                 if current_cursor:
                     params["cursor"] = current_cursor
                 
-                logger.info(f"Calling Neynar API with params: {params}")
+                logger.info(f"Calling Neynar API (call #{neynar_call_count+1}) with params: {params}")
+                call_start_time = datetime.now()
                 
                 try:
                     async with httpx.AsyncClient() as client:
                         response = await client.get(neynar_url, headers=headers, params=params)
+                    
+                    call_end_time = datetime.now()
+                    call_duration = (call_end_time - call_start_time).total_seconds()
+                    neynar_call_count += 1
                     
                     if response.status_code != 200:
                         logger.error(f"Neynar API error: {response.status_code} - {response.text}")
@@ -369,7 +391,7 @@ async def fetch_weighted_casts(
                     neynar_raw_casts = neynar_data.get("result", {}).get("casts", [])
                     next_cursor = neynar_data.get("result", {}).get("nextCursor", None)
                     
-                    logger.info(f"Received {len(neynar_raw_casts)} casts from Neynar. nextCursor: {next_cursor}")
+                    logger.info(f"Received {len(neynar_raw_casts)} casts from Neynar in {call_duration:.2f} seconds. nextCursor: {next_cursor}")
                     
                     # Convert raw Neynar data to a simpler structure
                     for c in neynar_raw_casts:
@@ -387,7 +409,7 @@ async def fetch_weighted_casts(
                     for c in neynar_raw_casts:
                         cast_time = c.get("timestamp", "")
                         if cast_time <= cutoff_date_str:
-                            logger.info("Found a cast at or before 2025-03-31; stopping further Neynar paging.")
+                            logger.info(f"Found a cast at or before 2025-03-31 (timestamp: {cast_time}); stopping further Neynar paging.")
                             keep_going = False
                             break
                     
@@ -402,24 +424,94 @@ async def fetch_weighted_casts(
                 except Exception as api_error:
                     logger.error(f"Error calling Neynar API: {str(api_error)}")
                     keep_going = False
+            
+            neynar_end_time = datetime.now()
+            neynar_duration = (neynar_end_time - neynar_start_time).total_seconds()
+            logger.info(f"Completed {neynar_call_count} Neynar API calls in {neynar_duration:.2f} seconds, retrieved {len(neynar_casts)} total casts")
+            
+            # Log a sample of the Neynar results (last 5)
+            if neynar_casts:
+                sample_size = min(5, len(neynar_casts))
+                logger.info(f"Sample of last {sample_size} Neynar casts:")
+                for i, cast in enumerate(neynar_casts[-sample_size:]):
+                    logger.info(f"  Cast {i+1}: hash={cast.get('hash')}, author={cast.get('author_username')}, timestamp={cast.get('timestamp')}")
+                    logger.info(f"    Text preview: {cast.get('text')[:50]}...")
         
         # ---------------------------------------------------------------------
         # 3) Combine + De-duplicate (by cast hash)
         # ---------------------------------------------------------------------
-        # Now we use the previously declared combined_casts
-        combined_casts = list(neo4j_casts)
-        neo4j_hashes = {nc.get("hash") for nc in neo4j_casts}
+        # We need a more robust enrichment approach
         
-        # Identify which Neynar casts are not in the Neo4j set
-        neynar_only_casts = [nc for nc in neynar_casts if nc.get("hash") not in neo4j_hashes]
-        logger.info(f"Found {len(neynar_only_casts)} 'neynar-only' casts (unique by hash).")
+        # First, try to directly enrich Neynar casts by looking up their hashes in Neo4j
+        neynar_hashes = [cast.get("hash") for cast in neynar_casts if cast.get("hash")]
+        logger.info(f"Looking up {len(neynar_hashes)} Neynar cast hashes in Neo4j for direct enrichment")
         
-        # Enrichment: find unique fids among the Neynar-only results
-        neynar_only_fids = {
-            c.get("author_fid") for c in neynar_only_casts if c.get("author_fid")
+        # Direct cast enrichment query - find these exact casts in Neo4j
+        direct_enrichment_start_time = datetime.now()
+        cast_enrichment_query = """
+        MATCH (cast:Cast)
+        WHERE cast.hash IN $hashes
+        MATCH (cast)-[:POSTED]-(wc:Warpcast:Account)
+        OPTIONAL MATCH (wc)-[:ACCOUNT]-(wallet:Wallet)
+        OPTIONAL MATCH (wc)-[:ACCOUNT]-(account:Account)
+        OPTIONAL MATCH ()-[rewards:REWARDS]->(:Wallet)-[:ACCOUNT]-(wc:Warpcast:Account)
+        WITH 
+            cast.hash as hash,
+            cast.timestamp as timestamp, 
+            cast.text as castText,
+            wc.username as authorUsername,
+            tofloat(sum(coalesce(tofloat(wallet.balance), 0))) as walletEthStablesValueUsd,
+            wc.fid as authorFid,
+            wc.bio as authorBio,
+            wc.fcCredScore as fcs,
+            tofloat(sum(coalesce(tofloat(rewards.value), 0))) as farcaster_usdc_rewards_earned,
+            collect(distinct({platform: account.platform, username: account.username})) as linkedAccounts,
+            collect(distinct({address: wallet.address, network: wallet.network})) as linkedWallets
+        RETURN {
+            hash: hash,
+            timestamp: toString(timestamp),
+            text: castText,
+            author_username: authorUsername,
+            wallet_eth_stables_value_usd: walletEthStablesValueUsd,
+            author_fid: authorFid,
+            author_bio: authorBio, 
+            author_farcaster_cred_score: fcs,
+            farcaster_usdc_rewards_earned: farcaster_usdc_rewards_earned,
+            linked_accounts: [acc IN linkedAccounts WHERE acc.platform <> "Wallet"],
+            linked_wallets: linkedWallets
+        } as cast
+        """
+        
+        # Execute the direct cast enrichment
+        direct_enrichment_results = []
+        if neynar_hashes:
+            direct_enrichment_results = execute_cypher(cast_enrichment_query, {"hashes": neynar_hashes})
+        
+        direct_enriched_casts = [record.get("cast") for record in direct_enrichment_results]
+        directly_enriched_hashes = {cast.get("hash") for cast in direct_enriched_casts}
+        
+        direct_enrichment_end_time = datetime.now()
+        direct_enrichment_duration = (direct_enrichment_end_time - direct_enrichment_start_time).total_seconds()
+        logger.info(f"Directly enriched {len(directly_enriched_hashes)} casts from Neo4j by hash in {direct_enrichment_duration:.2f} seconds")
+        
+        # Find Neynar casts that weren't directly enriched by hash
+        remaining_neynar_casts = [cast for cast in neynar_casts if cast.get("hash") not in directly_enriched_hashes]
+        logger.info(f"Still need to enrich {len(remaining_neynar_casts)} Neynar casts by FID")
+        
+        # For the remaining casts, use FID-based enrichment as before
+        remaining_fids = {
+            str(c.get("author_fid")) for c in remaining_neynar_casts if c.get("author_fid")
         }
         
-        if neynar_only_fids:
+        # FID enrichment map for the remaining casts
+        fid_enrichment_map = {}
+        fid_enriched_casts = []
+        
+        # Always attempt to enrich remaining Neynar casts if there are any
+        if remaining_fids:
+            logger.info(f"Found {len(remaining_fids)} unique FIDs in remaining Neynar casts to enrich from Neo4j")
+            fid_enrichment_start_time = datetime.now()
+            
             # Enrich them from Neo4j
             enrichment_query = """
             MATCH (wc:Warpcast:Account)
@@ -447,14 +539,17 @@ async def fetch_weighted_casts(
                 linkedWallets
             """
             
-            enrichment_results = execute_cypher(enrichment_query, {"fids": list(neynar_only_fids)})
+            enrichment_results = execute_cypher(enrichment_query, {"fids": list(remaining_fids)})
+            
+            fid_enrichment_end_time = datetime.now()
+            fid_enrichment_duration = (fid_enrichment_end_time - fid_enrichment_start_time).total_seconds()
+            logger.info(f"FID enrichment query completed in {fid_enrichment_duration:.2f} seconds, returned data for {len(enrichment_results)} FIDs")
             
             # Build a map from fid -> dict of enrichment
-            enrichment_map = {}
             for record in enrichment_results:
                 fid = record.get("fid")
                 if fid:
-                    enrichment_map[fid] = {
+                    fid_enrichment_map[fid] = {
                         "authorUsername": record.get("authorUsername"),
                         "authorBio": record.get("authorBio"),
                         "fcCredScore": record.get("fcCredScore"),
@@ -464,24 +559,90 @@ async def fetch_weighted_casts(
                         "linkedWallets": record.get("linkedWallets", []),
                     }
             
-            # Apply enrichment
-            for cast in neynar_only_casts:
+            # Apply FID-based enrichment to the remaining casts
+            enriched_count = 0
+            for cast in remaining_neynar_casts:
                 fid = cast.get("author_fid")
-                if fid and fid in enrichment_map:
-                    enr = enrichment_map[fid]
-                    cast["author_username"] = enr["authorUsername"] or cast.get("author_username")
-                    cast["author_bio"] = enr["authorBio"] or cast.get("author_bio")
-                    cast["author_farcaster_cred_score"] = enr["fcCredScore"]
-                    cast["wallet_eth_stables_value_usd"] = enr["walletEthStablesValueUsd"]
-                    cast["farcaster_usdc_rewards_earned"] = enr["farcaster_usdc_rewards_earned"]
-                    cast["linked_accounts"] = enr["linkedAccounts"]
-                    cast["linked_wallets"] = enr["linkedWallets"]
+                
+                # Create a structured cast with all required fields
+                enriched_cast = {
+                    "hash": cast.get("hash"),
+                    "timestamp": cast.get("timestamp"),
+                    "text": cast.get("text"),
+                    "author_username": cast.get("author_username", ""),
+                    "author_fid": cast.get("author_fid"),
+                    "author_bio": cast.get("author_bio", ""),
+                    # Default values for Neo4j fields
+                    "author_farcaster_cred_score": None,
+                    "wallet_eth_stables_value_usd": 0,
+                    "farcaster_usdc_rewards_earned": 0,
+                    "linked_accounts": [],
+                    "linked_wallets": []
+                }
+                
+                # If we have FID enrichment data, update the structured cast
+                if fid and fid in fid_enrichment_map:
+                    enriched_count += 1
+                    enr = fid_enrichment_map[fid]
+                    
+                    # Update with enrichment data
+                    enriched_cast["author_username"] = enr["authorUsername"] or cast.get("author_username", "")
+                    enriched_cast["author_bio"] = enr["authorBio"] or cast.get("author_bio", "")
+                    enriched_cast["author_farcaster_cred_score"] = enr["fcCredScore"]
+                    enriched_cast["wallet_eth_stables_value_usd"] = enr["walletEthStablesValueUsd"]
+                    enriched_cast["farcaster_usdc_rewards_earned"] = enr["farcaster_usdc_rewards_earned"]
+                    enriched_cast["linked_accounts"] = enr["linkedAccounts"]
+                    enriched_cast["linked_wallets"] = enr["linkedWallets"]
+                
+                # Add a source marker
+                enriched_cast["source"] = "neynar_fid_enriched" if fid and fid in fid_enrichment_map else "neynar_raw"
+                
+                # Add to the list of FID-enriched casts
+                fid_enriched_casts.append(enriched_cast)
+            
+            logger.info(f"Successfully enriched {enriched_count} of {len(remaining_neynar_casts)} remaining Neynar casts with Neo4j FID data")
         
-        # Add the enriched Neynar-only casts to the combined list
-        combined_casts.extend(neynar_only_casts)
+        # Start with Neo4j casts and mark them
+        combined_casts = list(neo4j_casts)
+        for cast in combined_casts:
+            cast["source"] = "neo4j_search"
+        
+        # Create a set of hashes we already have
+        existing_hashes = {c.get("hash") for c in combined_casts}
+        
+        # Add the directly enriched casts (if not already in the results)
+        for cast in direct_enriched_casts:
+            if cast.get("hash") not in existing_hashes:
+                cast["source"] = "neo4j_direct"
+                combined_casts.append(cast)
+                existing_hashes.add(cast.get("hash"))
+        
+        # Finally, add the FID-enriched/raw Neynar casts (if not already in the results)
+        for cast in fid_enriched_casts:
+            if cast.get("hash") not in existing_hashes:
+                # Source is already set in the fid_enriched_casts creation
+                combined_casts.append(cast)
+                existing_hashes.add(cast.get("hash"))
         
         # Sort final combined set by timestamp desc
         combined_casts.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        logger.info(f"Combined and sorted {len(combined_casts)} total casts")
+        
+        # Count by source for logging
+        source_counts = {}
+        for cast in combined_casts:
+            source = cast.get("source", "unknown")
+            source_counts[source] = source_counts.get(source, 0) + 1
+        
+        logger.info(f"Final cast sources: {source_counts}")
+        
+        # Log a sample of the final combined results (last 5)
+        if combined_casts:
+            sample_size = min(5, len(combined_casts))
+            logger.info(f"Sample of last {sample_size} combined casts:")
+            for i, cast in enumerate(combined_casts[-sample_size:]):
+                logger.info(f"  Cast {i+1}: hash={cast.get('hash')}, author={cast.get('author_username')}, timestamp={cast.get('timestamp')}, source={cast.get('source', 'unknown')}")
+                logger.info(f"    Text preview: {cast.get('text')[:50]}...")
         
         # ---------------------------------------------------------------------
         # 4) Save to JSON (optional, like your snippet), for debugging
@@ -498,7 +659,7 @@ async def fetch_weighted_casts(
                     "timestamp": datetime.now().isoformat(),
                     "neo4j_count": len(neo4j_casts),
                     "neynar_count": len(neynar_casts),
-                    "unique_neynar_count": len(neynar_only_casts),
+                    "unique_neynar_count": len(remaining_neynar_casts),
                     "total_count": len(combined_casts),
                     "casts": combined_casts
                 }, f, ensure_ascii=False, indent=2)
@@ -506,10 +667,46 @@ async def fetch_weighted_casts(
         except Exception as e:
             logger.error(f"Error saving JSON: {str(e)}")
         
+        # Calculate metrics for the response
+        casts_count = len(combined_casts)
+        
+        # Calculate average fcCredScore for casts that have it
+        cred_scores = [float(cast.get("author_farcaster_cred_score", 0)) for cast in combined_casts 
+                      if cast.get("author_farcaster_cred_score") is not None]
+        avg_cred_score = sum(cred_scores) / len(cred_scores) if cred_scores else 0
+        
+        # Get unique authors (FIDs) for diversity calculation
+        unique_authors = set()
+        for cast in combined_casts:
+            if cast.get("author_fid"):
+                unique_authors.add(cast.get("author_fid"))
+        
+        # Calculate diversity multiplier (similar to miniapp mentions)
+        diversity_multiplier = min(1.0, len(unique_authors) / max(1, casts_count))
+        
+        # Calculate raw weighted score and apply diversity multiplier
+        raw_weighted_score = casts_count * avg_cred_score
+        weighted_score = raw_weighted_score * diversity_multiplier 
+        
+        # Create metrics dictionary
+        metrics = {
+            "casts": casts_count,
+            "uniqueAuthors": len(unique_authors),
+            "rawWeightedScore": raw_weighted_score,
+            "diversityMultiplier": diversity_multiplier,
+            "weighted_score": weighted_score,
+        }
+        
+        end_time = datetime.now()
+        total_duration = (end_time - start_time).total_seconds()
+        logger.info(f"Completed weighted casts search in {total_duration:.2f} seconds. Found {casts_count} casts from {len(unique_authors)} unique authors.")
+        logger.info(f"Metrics: raw_score={raw_weighted_score:.2f}, diversity={diversity_multiplier:.2f}, weighted_score={weighted_score:.2f}")
+        
         # Return all results with some basic metadata
         return {
             "casts": combined_casts,
-            "total": len(combined_casts)
+            "total": len(combined_casts),
+            "metrics": metrics
         }
         
     except Exception as e:
