@@ -69,6 +69,9 @@ class TokenData(BaseModel):
     believerScore: float = Field(..., description="Total holders weighted by social reputation of holders")
     holderCount: float = Field(..., description="Total unique wallet holders")
     avgSocialCredScore: Optional[float] = Field(None, description="Average holder social credibility")
+    
+    class Config:
+        extra = "allow"  # Allow extra fields that may be returned by the API
 
 class TokenResponseData(BaseModel):
     fcs_data: List[TokenData] = Field(..., description="List of token data with believer scores")
@@ -136,7 +139,7 @@ class KeyPromotersRequest(BaseModel):
     miniapp_name: str = Field(..., description="Name of the miniapp to retrieve key promoters for")
 
 # Define models for weighted casts search response
-class Cast(BaseModel):
+class CastData(BaseModel):
     hash: str = Field(..., description="Unique cast identifier")
     timestamp: str = Field(..., description="Cast creation timestamp")
     text: str = Field(..., description="Cast content")
@@ -152,21 +155,27 @@ class Cast(BaseModel):
         None, 
         description="Total USDC rewards from creator, developer, and referral programs"
     )
-    linked_accounts: List[Dict] = Field(..., description="Linked social accounts")
-    linked_wallets: List[Dict] = Field(..., description="Linked blockchain wallets")
+    linked_accounts: List[Dict[str, str]] = Field(default_factory=list, description="Linked social accounts")
+    linked_wallets: List[Dict[str, str]] = Field(default_factory=list, description="Linked blockchain wallets")
     source: Optional[str] = Field(None, description="Data source")
+    
+    class Config:
+        extra = "allow"  # Allow extra fields that may be returned by the API
 
-class CastMetrics(BaseModel):
+class CastMetricsData(BaseModel):
     casts: int = Field(..., description="Total matching casts")
     uniqueAuthors: int = Field(..., description="Distinct cast authors")
     rawWeightedScore: float = Field(..., description="Unmodified credibility score")
-    diversityMultiplier: float = Field(..., description="Author diversity coefficient - penalizes spammers. I.e. reduces the score when mentions are concentrated among a small group of users rather than distributed across many different users. A lower value indicates mentions are coming from fewer unique authors, which may suggest artificial promotion or spam.")
+    diversityMultiplier: float = Field(..., description="Author diversity coefficient - penalizes spammers")
     weighted_score: float = Field(..., description="Final credibility score")
 
-class WeightedCastsResponse(BaseModel):
-    casts: List[Dict] = Field(..., description="Matching casts")
+class WeightedCastsResponseData(BaseModel):
+    casts: List[Dict[str, Any]] = Field(..., description="Matching casts")
     total: int = Field(..., description="Total cast count")
-    metrics: CastMetrics = Field(..., description="Cast collection metrics")
+    metrics: Dict[str, Any] = Field(..., description="Cast collection metrics")
+    
+    class Config:
+        extra = "allow"  # Allow extra fields that may be returned by the API
 
 # Define routes
 @app.get("/")
@@ -176,7 +185,6 @@ async def root():
 
 @app.post(
     "/farstore-miniapp-mentions-counts", 
-    response_model=MiniappMentionsResponse,
     summary="Get mentions data for miniapps",
     description="Retrieves mention counts and statistics for miniapps from Farstore. API key required for authentication.",
     tags=["Farstore"],
@@ -189,7 +197,7 @@ async def root():
 )
 async def farstore_miniapp_mentions(
     api_key: str = Query(..., description="API key for authentication", example="something.something")
-):
+) -> Dict[str, Any]:
     """
     Get mentions data for miniapps from farstore
     
@@ -245,7 +253,6 @@ async def farstore_miniapp_mentions(
 
 @app.post(
     "/farstore-miniapp-key-promoters", 
-    response_model=KeyPromotersData,
     summary="Get key promoters for a miniapp",
     description="Retrieves key promoters and their recent casts for a specified miniapp. API key required for authentication.",
     tags=["Farstore"],
@@ -259,7 +266,7 @@ async def farstore_miniapp_mentions(
 async def retrieve_miniapp_key_promoters(
     request: KeyPromotersRequest, 
     api_key: str = Query(..., description="API key for authentication", example="password.lol")
-) -> KeyPromotersData:
+) -> Dict[str, Any]:
     """
     Retrieve key promoters for provided miniapp
     
@@ -313,8 +320,8 @@ async def retrieve_miniapp_key_promoters(
     
     
 
-@app.post("/token-believer-score", response_model=TokenResponseData)
-async def retrieve_token_believer_scores(request: TokensRequest) -> TokenResponseData:
+@app.post("/token-believer-score")
+async def retrieve_token_believer_scores(request: TokensRequest) -> Dict[str, Any]:
     """Retrieve believer scores and supporting metadata for up to 25 Base token addresses"""
     try:
         # Query that accepts a list of token addresses
@@ -379,8 +386,8 @@ async def retrieve_token_believer_scores(request: TokensRequest) -> TokenRespons
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 # Keep the original single token endpoint for backward compatibility
-@app.post("/token", response_model=TokenResponseData)
-async def get_token_data(request: TokensRequest) -> TokenResponseData:
+@app.post("/token")
+async def get_token_data(request: TokensRequest) -> Dict[str, Any]:
     """Get data for a single token (redirects to /tokens endpoint)"""
     return await retrieve_token_believer_scores(request)
 
@@ -399,7 +406,6 @@ def clean_query_for_lucene(user_query):
 
 @app.post(
     "/casts-search-weighted",
-    response_model=WeightedCastsResponse,
     summary="Search for casts with weighted scoring",
     description="Search for casts matching a query with weighted scoring based on author credibility. API key required for authentication.",
     tags=["Search"],
@@ -408,12 +414,23 @@ def clean_query_for_lucene(user_query):
         401: {"description": "Unauthorized - Invalid API key"},
         429: {"description": "Too Many Requests - Usage quota exceeded"},
         500: {"description": "Internal Server Error"}
+    },
+    openapi_extra={
+        "parameters": [
+            {
+                "name": "api_key",
+                "in": "query",
+                "required": True,
+                "schema": {"type": "string"},
+                "description": "API key for authentication"
+            }
+        ]
     }
 )
 async def fetch_weighted_casts(
     request: CastRequest,
     api_key: str = Query(..., description="API key for authentication", example="fafakjfakjfa.lol")
-) -> WeightedCastsResponse:
+) -> Dict[str, Any]:
     """
     Get matching casts and related metadata using a hybrid Neynar API + Neo4j approach.
     Returns all matching results without pagination.
