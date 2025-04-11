@@ -263,6 +263,18 @@ async def fetch_weighted_casts(
     """
     
     try:
+        # Check API usage limits
+        usage_query = """
+        MATCH (node:ApiUsage {api_key: "arbitrage.lol"})
+        SET node.queryCounter = COALESCE(node.queryCounter, 0) + 1
+        RETURN node.queryCounter as counter
+        """
+        
+        usage_result = execute_cypher(usage_query, {})
+        if usage_result and usage_result[0].get("counter", 0) > 250:
+            logger.warning(f"API usage exceeded for arbitrage.lol: {usage_result[0].get('counter')} queries")
+            raise HTTPException(status_code=429, detail="USAGE EXCEEDED")
+        
         logger.info(f"Starting weighted casts search with query: '{request.query}'")
         start_time = datetime.now()
         
@@ -713,7 +725,6 @@ async def fetch_weighted_casts(
         logger.error(f"Error retrieving weighted casts: {str(e)}")
         logger.exception("Detailed traceback:")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-
     
 @app.on_event("shutdown")
 async def shutdown_event():
