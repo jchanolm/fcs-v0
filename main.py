@@ -311,10 +311,8 @@ async def retrieve_miniapp_key_promoters(
         neo4j_data = results[0].get("data")
         promoters_data = neo4j_data.get("promoters", [])
         
-        # Create response object
-        response_data = KeyPromotersData(promoters=promoters_data)
-        
-        return response_data
+        # Return the data directly as a dictionary
+        return {"promoters": promoters_data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     
