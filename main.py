@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional, Union
 from neo4j import GraphDatabase
 from dotenv import load_dotenv
+import datetime
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -111,17 +112,42 @@ class CastResponseData(BaseModel):
     casts: List[Dict]
     pagination: PaginationInfo    
 
+=======
+class RecentCast(BaseModel):
+    text: str
+    hash: str
+    timestamp: str
+    
+    @validator('timestamp')
+    def validate_timestamp(cls, v):
+        # Convert Neo4j DateTime objects to string if needed
+        if hasattr(v, 'iso_format'):
+            return v.iso_format()
+        return v
+
+class Promoter(BaseModel):
+    username: str
+    fid: int
+    fcCredScore: float
+    recentCasts: List[RecentCast]
+
+class KeyPromotersData(BaseModel):
+    promoters: List[Promoter]
+
+class KeyPromotersRequest(BaseModel):
+    miniapp_name: str = Field(..., description="Name of the miniapp to retrieve key promoters for")
 
 # Define routes
 @app.get("/")
 async def root():
     return {"message": "Token API is running"}
 
+
 @app.post("/farstore-miniapp-mentions-counts", response_model=MiniappMentionsResponse)
 async def farstore_miniapp_mentions(api_key: str = Query(..., description="API key for authentication")):
     """Get mentions data for miniapps from farstore"""
     # Validate API key
-    if api_key != "password.lol":
+    if api_key != FARSTORE_PASS:
         raise HTTPException(status_code=401, detail="Invalid API key")
     
     try:
@@ -165,6 +191,57 @@ async def farstore_miniapp_mentions(api_key: str = Query(..., description="API k
         return response_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    
+
+@app.post("/farstore-miniapp-key-promoters", response_model=KeyPromotersData)
+async def retrieve_miniapp_key_promoters(request: KeyPromotersRequest, api_key: str = Query(..., description="API key for authentication")) -> KeyPromotersData:
+    """Retrieve key promoters for provided miniapp"""
+    # Validate API key
+    if api_key != FARSTORE_PASS:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+        
+    try: 
+        ### get casts
+        query = """
+        CALL db.index.fulltext.queryNodes("frames", $query) YIELD node, score
+        WITH node as cast
+        MATCH (cast)-[r:POSTED]-(wc:Warpcast:Account)
+        WHERE NOT (wc)-[:CREATED]->(:Miniapp {frameUrl: $query})
+        WITH wc, wc.fcCredScore as fcCredScore, wc.username as username, wc.fid as fid, cast
+        ORDER BY fcCredScore DESC
+        LIMIT 25
+        MATCH (wc)-[:POSTED]->(cast)
+        WITH wc, username, fid, fcCredScore, cast
+        ORDER BY cast.timestamp DESC
+        WITH wc, username, fid, fcCredScore, collect({text: cast.text, hash: cast.hash, timestamp: toString(cast.timestamp)})[0..3] as recentCasts
+        WITH collect({
+            username: username,
+            fid: fid,
+            fcCredScore: fcCredScore,
+            recentCasts: recentCasts
+        }) as promoters
+        RETURN {promoters: promoters} as data
+        """
+        
+        # Execute query with the miniapp_name parameter
+        results = execute_cypher(query, {"query": request.miniapp_name})
+        
+        # Process results
+        if not results or len(results) == 0:
+            raise HTTPException(status_code=404, detail="No key promoters found")
+        
+        # Extract the data from the Neo4j result
+        neo4j_data = results[0].get("data")
+        promoters_data = neo4j_data.get("promoters", [])
+        
+        # Create response object
+        response_data = KeyPromotersData(promoters=promoters_data)
+        
+        return response_data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    
+    
 
 @app.post("/token-believer-score", response_model=TokenResponseData)
 async def retrieve_token_believer_scores(request: TokensRequest) -> TokenResponseData:
