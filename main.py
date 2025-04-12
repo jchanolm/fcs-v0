@@ -133,6 +133,9 @@ class CastRequest(BaseModel):
     start_timestamp: Optional[int] = None
     end_timestamp: Optional[int] = None
 
+class BelieversDataRequest(BaseModel):
+    token_address: str = Field(..., description="Token contract address")
+    
 class PaginationInfo(BaseModel):
     count: int
     first_timestamp: Optional[str] = None
@@ -147,13 +150,23 @@ class RecentCast(BaseModel):
     text: str = Field(..., description="Cast content")
     hash: str = Field(..., description="Unique cast identifier")
     timestamp: str = Field(..., description="Cast creation timestamp")
+
+class TopBelieversData(BaseModel):
+    fid: int = Field(..., description="User Farcaster ID.")
+    username: str = Field(..., description="User Farcaster username.")
+    bio: str = Field(..., description="User Farcaster Bio.")
+    fcred: float = Field(..., description="User Farcaster Cred Score (i.e. Social Cred Score).")
+    walletBalance: float = Field(..., description="Estimated user wallet balance in ETH + USD stablecoins.")
+    farcasterRewardsEarned: float = Field(..., description="Developer + Creator + Referral rewards paid to user by Farcaster.")
+
+
     
-    @validator('timestamp')
-    def validate_timestamp(cls, v):
-        # Convert Neo4j DateTime objects to string if needed
-        if hasattr(v, 'iso_format'):
-            return v.iso_format()
-        return v
+    # @validator('timestamp')
+    # def validate_timestamp(cls, v):
+    #     # Convert Neo4j DateTime objects to string if needed
+    #     if hasattr(v, 'iso_format'):
+    #         return v.iso_format()
+    #     return v
     
     class Config:
         extra = "allow"  # Allow extra fields
@@ -357,7 +370,8 @@ async def retrieve_miniapp_key_promoters(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     
-    
+
+
 
 @app.post(
     "/token-believer-score",
@@ -576,6 +590,61 @@ async def retrieve_token_believer_scores(request: TokensRequest) -> Dict[str, An
     except Exception as e:
         logger.error(f"Error retrieving token believer scores: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@app.post(
+        "/token-top-believers",
+        summary="Top believers for token",
+        description="Return top 25 believers for Product Clank-listed token",
+        tags=["Tokens"],
+        responses={
+        200: {"description": "Successfully retrieved believers"},
+        404: {"description": "No believers found for the token"},
+        500: {"description": "Internal Server Error"}
+    },
+)
+async def get_token_top_believers(request: BelieversDataRequest) -> Dict[str, Any]:
+    """
+    Get top 25 believers for a specific token
+    
+    - Returns believers with their wallet and Warpcast account information
+    """
+    try:
+        # Lowercase the token address
+        token_address = request.token_address.lower()
+        
+        # Query to find top believers
+        query = """
+      MATCH (believerWallet:Wallet)-[r:HOLDS]->(token:Token {address:$token_address})
+        MATCH (believerWallet)-[:ACCOUNT*..4]-(wc:Warpcast:Account)  
+        WHERE wc.fcCredScore is not null       
+        ORDER BY wc.fcCredScore DESC LIMIT 25
+        RETURN {
+            top_believers: COLLECT(DISTINCT({
+                fid: tointeger(wc.fid),
+                username: wc.username,
+                bio: wc.bio,
+                fcred: wc.fcCredScore
+            }))
+        } as data"""
+        
+        params = {"token_address": token_address}
+        # Execute query
+        results = execute_cypher(query, params)
+        
+        # Process results
+        if not results or len(results) == 0:
+            raise HTTPException(status_code=404, detail="No believers found for the token")
+        
+        # Extract the data from the Neo4j result
+        neo4j_data = results[0].get("data")
+        believers_data = neo4j_data.get("top_believers", [])
+        
+        # Return the data in the expected format
+        return {"believers": believers_data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    
 
 
 def clean_query_for_lucene(user_query):
@@ -1084,8 +1153,7 @@ async def fetch_weighted_casts(
             "casts": combined_casts,
             "total": len(combined_casts),
             "metrics": metrics
-        }
-        
+        }        
     except Exception as e:
         logger.error(f"Error retrieving weighted casts: {str(e)}")
         logger.exception("Detailed traceback:")
