@@ -60,6 +60,7 @@ def execute_cypher(query, params=None):
 # Request models
 class TokensRequest(BaseModel):
     api_key: str = os.getenv("CLANK_PASS")
+    token_address: Optional[str] = None
 
 # Response models
 # Update the TokenData model to match the return types in the query
@@ -376,7 +377,7 @@ async def retrieve_miniapp_key_promoters(
 @app.post(
     "/token-believer-score",
     summary="Get comprehensive token believer scores",
-    description="Retrieves advanced believer scores with market cap adjustments and concentration metrics for tokens",
+    description="Retrieves advanced believer scores with market cap adjustments and concentration metrics for tokens. Optionally filter by a specific token address.",
     tags=["Tokens"],
     responses={
         200: {"description": "Successfully retrieved token believer scores"},
@@ -393,6 +394,7 @@ async def retrieve_token_believer_scores(request: TokensRequest) -> Dict[str, An
     - Returns normalized believer scores (0-100) with detailed metrics
     - Includes market cap adjustments, token concentration, and social metrics
     - Provides raw and adjusted scores for transparency
+    - Optionally filter by a specific token address
     """
     # Validate API key
     if request.api_key != os.getenv("CLANK_PASS"):
@@ -549,6 +551,11 @@ async def retrieve_token_believer_scores(request: TokensRequest) -> Dict[str, An
                   WHEN max_score = min_score THEN 50.0 // Default to middle value if all scores are equal
                   ELSE 100.0 * (market_adjusted_score - min_score) / (max_score - min_score)
              END AS normalized_believer_score
+        // Filter by token address if provided
+        WHERE CASE 
+            WHEN $token_address IS NOT NULL THEN toLower(token.address) = toLower($token_address)
+            ELSE true
+        END
         RETURN
             token.address AS address, 
             token.name AS name,
@@ -568,9 +575,13 @@ async def retrieve_token_believer_scores(request: TokensRequest) -> Dict[str, An
         """
 
         params = {}
+        if request.token_address:
+            params["token_address"] = request.token_address.lower()
+        else:
+            params["token_address"] = None
         
         # Execute query
-        logger.info("Querying for all tokens")
+        logger.info(f"Querying for tokens with params: {params}")
         results = execute_cypher(query, params)
         # Process results
         if not results:
@@ -590,7 +601,6 @@ async def retrieve_token_believer_scores(request: TokensRequest) -> Dict[str, An
     except Exception as e:
         logger.error(f"Error retrieving token believer scores: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-
 
 @app.post(
         "/token-top-believers",
