@@ -156,6 +156,7 @@ class TopBelieversData(BaseModel):
     fid: int = Field(..., description="User Farcaster ID.")
     username: str = Field(..., description="User Farcaster username.")
     bio: str = Field(..., description="User Farcaster Bio.")
+    pfpUrl: str = Field(..., description="PFP URL for user.")
     fcred: float = Field(..., description="User Farcaster Cred Score (i.e. Social Cred Score).")
     walletBalance: float = Field(..., description="Estimated user wallet balance in ETH + USD stablecoins.")
     farcasterRewardsEarned: float = Field(..., description="Developer + Creator + Referral rewards paid to user by Farcaster.")
@@ -634,6 +635,7 @@ async def get_token_top_believers(request: BelieversDataRequest) -> Dict[str, An
                 fid: tointeger(wc.fid),
                 username: wc.username,
                 bio: wc.bio,
+                pfpUrl: wc.pfpUrl,
                 fcred: wc.fcCredScore
             }))
         } as data"""
