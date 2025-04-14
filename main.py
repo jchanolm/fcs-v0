@@ -550,7 +550,7 @@ async def retrieve_token_believer_scores(request: TokensRequest) -> Dict[str, An
              // Normalize to 0-70 scale
              CASE 
                   WHEN max_score = min_score THEN 40.0 // Default to middle value if all scores are equal
-                  ELSE 70.0 * (market_adjusted_score - min_score) / (max_score - min_score)
+                  ELSE 1.0 + 69.0 * (market_adjusted_score - min_score) / (max_score - min_score)
              END AS normalized_believer_score
         // Filter by token address if provided
         WHERE CASE 
