@@ -392,7 +392,7 @@ async def retrieve_token_believer_scores(request: TokensRequest) -> Dict[str, An
     Retrieve comprehensive believer scores and supporting metadata for token addresses
     
     - Requires valid API key for authentication
-    - Returns normalized believer scores (0-100) with detailed metrics
+    - Returns normalized believer scores (0-80) with detailed metrics
     - Includes market cap adjustments, token concentration, and social metrics
     - Provides raw and adjusted scores for transparency
     - Optionally filter by a specific token address
@@ -531,7 +531,7 @@ async def retrieve_token_believer_scores(request: TokensRequest) -> Dict[str, An
                   total_balance: total_balance
              }) AS all_token_data
 
-        // Normalize scores to 0-100
+        // Normalize scores to 0-80
         UNWIND all_token_data AS token_data
         WITH token_data.token AS token, 
              token_data.raw_score AS raw_believer_score,
@@ -547,10 +547,10 @@ async def retrieve_token_believer_scores(request: TokensRequest) -> Dict[str, An
              min_score, max_score
 
         WITH token, raw_believer_score, diversity_adjusted_score, market_adjusted_score, holder_mcap_ratio, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, avgSocialCredScore, total_balance,
-             // Normalize to 0-100 scale
+             // Normalize to 0-80 scale
              CASE 
-                  WHEN max_score = min_score THEN 50.0 // Default to middle value if all scores are equal
-                  ELSE 100.0 * (market_adjusted_score - min_score) / (max_score - min_score)
+                  WHEN max_score = min_score THEN 40.0 // Default to middle value if all scores are equal
+                  ELSE 80.0 * (market_adjusted_score - min_score) / (max_score - min_score)
              END AS normalized_believer_score
         // Filter by token address if provided
         WHERE CASE 
@@ -602,7 +602,6 @@ async def retrieve_token_believer_scores(request: TokensRequest) -> Dict[str, An
     except Exception as e:
         logger.error(f"Error retrieving token believer scores: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-
 @app.post(
         "/token-top-believers",
         summary="Top believers for token",
