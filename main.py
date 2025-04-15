@@ -311,8 +311,7 @@ class TopBelieversData(BaseModel):
     bio: str = Field(..., description="User Farcaster Bio.")
     pfpUrl: str = Field(..., description="PFP URL for user.")
     fcred: float = Field(..., description="User Farcaster Cred Score (i.e. Social Cred Score).")
-    walletBalance: float = Field(..., description="Estimated user wallet balance in ETH + USD stablecoins.")
-    farcasterRewardsEarned: float = Field(..., description="Developer + Creator + Referral rewards paid to user by Farcaster.")
+    balance: float = Field(..., description="Estimated balance of token held by believer, across Farcaster-linked wallets.")
 
 
     
@@ -782,11 +781,13 @@ async def get_token_top_believers(request: BelieversDataRequest) -> Dict[str, An
         MATCH (believerWallet)-[:ACCOUNT*..4]-(wc:Warpcast:Account)  
         WHERE wc.fcCredScore is not null       
         ORDER BY wc.fcCredScore DESC LIMIT 25
+        WITH wc, sum(tofloat(r.balance)) as balance
         RETURN {
             top_believers: COLLECT(DISTINCT({
                 fid: tointeger(wc.fid),
                 username: wc.username,
                 bio: wc.bio,
+                balance: balance,
                 pfpUrl: wc.pfpUrl,
                 fcred: wc.fcCredScore
             }))
