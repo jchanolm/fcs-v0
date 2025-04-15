@@ -2,6 +2,9 @@ import os
 import csv 
 import httpx 
 import json 
+from pymongo import MongoClient
+from typing import List, Dict, Any, Optional
+from motor.motor_asyncio import AsyncIOMotorClient
 import logging
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Query
@@ -10,13 +13,47 @@ from typing import Dict, Any, List, Optional, Union
 from neo4j import GraphDatabase
 from dotenv import load_dotenv
 
-
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv(override=True)
+
+# Initialize MongoDB here
+mongo_client = None
+async_mongo_client = None
+db = None
+async_db = None
+
+def init_mongodb():
+    """Initialize MongoDB connections."""
+    global mongo_client, async_mongo_client, db, async_db
+    
+    try:
+        MONGO_DB_URL = os.getenv("MONGO_DB_URL")
+        MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "farcaster")
+        
+        # Sync client for initialization checks
+        mongo_client = MongoClient(MONGO_DB_URL)
+        
+        # Async client for API operations
+        async_mongo_client = AsyncIOMotorClient(MONGO_DB_URL)
+        
+        # Database references
+        db = mongo_client[MONGO_DB_NAME]
+        async_db = async_mongo_client[MONGO_DB_NAME]
+        
+        # Test the connection
+        db_info = mongo_client.server_info()
+        logger.info(f"Connected to MongoDB: {db_info.get('version')}")
+        return True
+    except Exception as e:
+        logger.error(f"MongoDB connection error: {str(e)}")
+        return False
+
+# Call the local init function
+init_mongodb()
 
 FARSTORE_PASS = os.getenv('FARSTORE_PASS')
 # Neo4j Configuration
@@ -46,6 +83,99 @@ try:
 except Exception as e:
     logger.error(f"Neo4j connection error: {str(e)}")
     # Don't raise here, just log the error
+    
+async def search_casts(query: str, limit: int = 100) -> List[Dict[str, Any]]:
+    """
+    Search for casts using MongoDB Atlas Search
+    
+    Args:
+        query: The search query to execute
+        limit: Maximum number of results to return
+        
+    Returns:
+        List of matching cast documents
+    """
+    try:
+        logger.info(f"Searching MongoDB for casts with query: '{query}', limit: {limit}")
+        
+        # Use Atlas Search query with text search operator
+        search_pipeline = [
+            {
+                "$search": {
+                    "index": "default",  # Update with your actual search index name
+                    "text": {
+                        "query": query,
+                        "path": ["text", "author", "mentionedUsernames"],  # Adjust fields as needed
+                        "fuzzy": {
+                            "maxEdits": 2,
+                            "prefixLength": 1
+                        }
+                    }
+                }
+            },
+            {
+                "$limit": limit
+            },
+            # Add search score
+            {
+                "$addFields": {
+                    "score": {
+                        "$meta": "searchScore"
+                    }
+                }
+            }
+        ]
+        
+        # Execute the search pipeline
+        results = await async_db.casts.aggregate(search_pipeline).to_list(length=limit)
+        
+        logger.info(f"MongoDB search returned {len(results)} cast results")
+        
+        # Convert MongoDB _id to string
+        for doc in results:
+            if "_id" in doc:
+                doc["_id"] = str(doc["_id"])
+        
+        return results
+    
+    except Exception as e:
+        logger.error(f"MongoDB search error: {str(e)}")
+        logger.exception("MongoDB search exception:")
+        return []
+
+async def get_casts_by_hashes(hashes: List[str]) -> List[Dict[str, Any]]:
+    """
+    Retrieve casts by their hash values
+    
+    Args:
+        hashes: List of cast hash values to retrieve
+        
+    Returns:
+        List of matching cast documents
+    """
+    try:
+        logger.info(f"Retrieving {len(hashes)} casts from MongoDB by hash")
+        
+        if not hashes:
+            return []
+            
+        # Query casts by hash
+        results = await async_db.casts.find({"hash": {"$in": hashes}}).to_list(length=len(hashes))
+        
+        logger.info(f"Retrieved {len(results)} casts from MongoDB by hash")
+        
+        # Convert MongoDB _id to string
+        for doc in results:
+            if "_id" in doc:
+                doc["_id"] = str(doc["_id"])
+                
+        return results
+        
+    except Exception as e:
+        logger.error(f"Error retrieving casts by hash: {str(e)}")
+        logger.exception("MongoDB get_casts_by_hashes exception:")
+        return []
+    
 
 # Initialize FastAPI
 app = FastAPI(title="Token API", description="API for querying token data from Neo4j")
@@ -698,7 +828,7 @@ async def fetch_weighted_casts(
     api_key: str = Query(..., description="API key for authentication", example="fafakjfakjfa.lol")
 ) -> Dict[str, Any]:
     """
-    Get matching casts and related metadata using a hybrid Neynar API + Neo4j approach.
+    Get matching casts and related metadata using a hybrid MongoDB Atlas Search + Neo4j approach.
     Returns all matching results without pagination.
     
     - Requires valid API key for authentication
@@ -727,68 +857,43 @@ async def fetch_weighted_casts(
         combined_casts = []
         
         # ---------------------------------------------------------------------
-        # 0) Clean the user's query for Neo4j fulltext
+        # 0) Clean the user's query for MongoDB Atlas Search
         # ---------------------------------------------------------------------
         clean_query = clean_query_for_lucene(request.query)
-        logger.info(f"User's raw search: '{request.query}', cleaned for Neo4j: '{clean_query}'")
+        logger.info(f"User's raw search: '{request.query}', cleaned for search: '{clean_query}'")
         
         # ---------------------------------------------------------------------
-        # 1) Fetch from Neo4j (one-time)
-        #    We'll just do a single pass for all relevant casts from Graph
+        # 1) Fetch from MongoDB Atlas Search (replacing Neo4j fulltext search)
         # ---------------------------------------------------------------------
-        neo4j_query = """
-        CALL db.index.fulltext.queryNodes("casts", $query) YIELD node, score
-        WITH node, score 
-        WHERE score > 4
-        AND node.timestamp IS NOT NULL
-        MATCH (node)-[:POSTED]-(wc:Warpcast:Account)
-        OPTIONAL MATCH (wc)-[:ACCOUNT]-(wallet:Wallet)
-        OPTIONAL MATCH (wc)-[:ACCOUNT]-(account:Account)
-        OPTIONAL MATCH ()-[rewards:REWARDS]->(:Wallet)-[:ACCOUNT]-(wc:Warpcast:Account)
-        WITH 
-            node.hash as hash,
-            node.timestamp as timestamp, 
-            node.text as castText,
-            wc.username as authorUsername,
-            tofloat(sum(coalesce(tofloat(wallet.balance), 0))) as walletEthStablesValueUsd,
-            wc.fid as authorFid,
-            wc.bio as authorBio,
-            wc.fcCredScore as fcs,
-            tofloat(sum(coalesce(tofloat(rewards.value), 0))) as farcaster_usdc_rewards_earned,
-            collect(distinct({platform: account.platform, username: account.username})) as linkedAccounts,
-            collect(distinct({address: wallet.address, network: wallet.network})) as linkedWallets
-        ORDER BY timestamp DESC
-        RETURN {
-            hash: hash,
-            timestamp: toString(timestamp),
-            text: castText,
-            author_username: authorUsername,
-            wallet_eth_stables_value_usd: walletEthStablesValueUsd,
-            author_fid: authorFid,
-            author_bio: authorBio,
-            author_farcaster_cred_score: fcs,
-            farcaster_usdc_rewards_earned: farcaster_usdc_rewards_earned,
-            linked_accounts: [acc IN linkedAccounts WHERE acc.platform <> "Wallet"],
-            linked_wallets: linkedWallets
-        } as cast
-        """
+        mongo_start_time = datetime.now()
+        mongo_casts_results = await mongo_helper.search_casts(clean_query, limit=100)
+        mongo_end_time = datetime.now()
+        mongo_duration = (mongo_end_time - mongo_start_time).total_seconds()
         
-        neo4j_params = {"query": clean_query}
-        logger.info(f"Executing Neo4j query with params: {neo4j_params}")
-        neo4j_start_time = datetime.now()
+        logger.info(f"MongoDB Atlas Search completed in {mongo_duration:.2f} seconds, returned {len(mongo_casts_results)} results")
         
-        neo4j_results = execute_cypher(neo4j_query, neo4j_params)
-        neo4j_end_time = datetime.now()
-        neo4j_duration = (neo4j_end_time - neo4j_start_time).total_seconds()
-        logger.info(f"Neo4j query completed in {neo4j_duration:.2f} seconds, returned {len(neo4j_results)} results")
+        # Process MongoDB results into a consistent format
+        mongo_casts = []
+        for cast in mongo_casts_results:
+            mongo_casts.append({
+                "hash": cast.get("hash"),
+                "timestamp": cast.get("timestamp") or cast.get("createdAt", ""),
+                "text": cast.get("text", ""),
+                "author_username": cast.get("author", ""),
+                "author_fid": cast.get("authorFid"),
+                "author_bio": "",  # Will be enriched from Neo4j
+                "likeCount": cast.get("likeCount", 0),
+                "replyCount": cast.get("replyCount", 0),
+                "mentionedChannels": cast.get("mentionedChannelIds", []),
+                "mentionedUsers": cast.get("mentionedUsernames", []),
+                "relevanceScore": cast.get("score", 0)
+            })
         
-        neo4j_casts = [record.get("cast") for record in neo4j_results]
-        
-        # Log a sample of the Neo4j results (last 5)
-        if neo4j_casts:
-            sample_size = min(5, len(neo4j_casts))
-            logger.info(f"Sample of last {sample_size} Neo4j casts:")
-            for i, cast in enumerate(neo4j_casts[-sample_size:]):
+        # Log a sample of the MongoDB results
+        if mongo_casts:
+            sample_size = min(5, len(mongo_casts))
+            logger.info(f"Sample of {sample_size} MongoDB casts:")
+            for i, cast in enumerate(mongo_casts[:sample_size]):
                 logger.info(f"  Cast {i+1}: hash={cast.get('hash')}, author={cast.get('author_username')}, timestamp={cast.get('timestamp')}")
                 logger.info(f"    Text preview: {cast.get('text')[:50]}...")
         
@@ -899,9 +1004,13 @@ async def fetch_weighted_casts(
         # ---------------------------------------------------------------------
         # We need a more robust enrichment approach
         
-        # First, try to directly enrich Neynar casts by looking up their hashes in Neo4j
+        # First, try to directly enrich MongoDB and Neynar casts by looking up their hashes in Neo4j
+        # Combine the hashes from both sources
+        mongo_hashes = [cast.get("hash") for cast in mongo_casts if cast.get("hash")]
         neynar_hashes = [cast.get("hash") for cast in neynar_casts if cast.get("hash")]
-        logger.info(f"Looking up {len(neynar_hashes)} Neynar cast hashes in Neo4j for direct enrichment")
+        all_hashes = list(set(mongo_hashes + neynar_hashes))  # Remove duplicates
+        
+        logger.info(f"Looking up {len(all_hashes)} cast hashes in Neo4j for direct enrichment")
         
         # Direct cast enrichment query - find these exact casts in Neo4j
         direct_enrichment_start_time = datetime.now()
@@ -941,8 +1050,8 @@ async def fetch_weighted_casts(
         
         # Execute the direct cast enrichment
         direct_enrichment_results = []
-        if neynar_hashes:
-            direct_enrichment_results = execute_cypher(cast_enrichment_query, {"hashes": neynar_hashes})
+        if all_hashes:
+            direct_enrichment_results = execute_cypher(cast_enrichment_query, {"hashes": all_hashes})
         
         direct_enriched_casts = [record.get("cast") for record in direct_enrichment_results]
         directly_enriched_hashes = {cast.get("hash") for cast in direct_enriched_casts}
@@ -951,22 +1060,27 @@ async def fetch_weighted_casts(
         direct_enrichment_duration = (direct_enrichment_end_time - direct_enrichment_start_time).total_seconds()
         logger.info(f"Directly enriched {len(directly_enriched_hashes)} casts from Neo4j by hash in {direct_enrichment_duration:.2f} seconds")
         
-        # Find Neynar casts that weren't directly enriched by hash
+        # Find casts that weren't directly enriched by hash
+        remaining_mongo_casts = [cast for cast in mongo_casts if cast.get("hash") not in directly_enriched_hashes]
         remaining_neynar_casts = [cast for cast in neynar_casts if cast.get("hash") not in directly_enriched_hashes]
-        logger.info(f"Still need to enrich {len(remaining_neynar_casts)} Neynar casts by FID")
         
-        # For the remaining casts, use FID-based enrichment as before
+        # Combine remaining casts from both sources
+        remaining_casts = remaining_mongo_casts + remaining_neynar_casts
+        
+        logger.info(f"Still need to enrich {len(remaining_casts)} casts by FID")
+        
+        # For the remaining casts, use FID-based enrichment
         remaining_fids = {
-            str(c.get("author_fid")) for c in remaining_neynar_casts if c.get("author_fid")
+            str(c.get("author_fid")) for c in remaining_casts if c.get("author_fid")
         }
         
         # FID enrichment map for the remaining casts
         fid_enrichment_map = {}
         fid_enriched_casts = []
         
-        # Always attempt to enrich remaining Neynar casts if there are any
+        # Always attempt to enrich remaining casts if there are any
         if remaining_fids:
-            logger.info(f"Found {len(remaining_fids)} unique FIDs in remaining Neynar casts to enrich from Neo4j")
+            logger.info(f"Found {len(remaining_fids)} unique FIDs in remaining casts to enrich from Neo4j")
             fid_enrichment_start_time = datetime.now()
             
             # Enrich them from Neo4j
@@ -1018,7 +1132,7 @@ async def fetch_weighted_casts(
             
             # Apply FID-based enrichment to the remaining casts
             enriched_count = 0
-            for cast in remaining_neynar_casts:
+            for cast in remaining_casts:
                 fid = cast.get("author_fid")
                 
                 # Create a structured cast with all required fields
@@ -1052,32 +1166,25 @@ async def fetch_weighted_casts(
                     enriched_cast["linked_wallets"] = enr["linkedWallets"]
                 
                 # Add a source marker
-                enriched_cast["source"] = "neynar_fid_enriched" if fid and fid in fid_enrichment_map else "neynar_raw"
+                source_type = "mongo" if cast in remaining_mongo_casts else "neynar"
+                enriched_cast["source"] = f"{source_type}_fid_enriched" if fid and fid in fid_enrichment_map else f"{source_type}_raw"
                 
                 # Add to the list of FID-enriched casts
                 fid_enriched_casts.append(enriched_cast)
             
-            logger.info(f"Successfully enriched {enriched_count} of {len(remaining_neynar_casts)} remaining Neynar casts with Neo4j FID data")
+            logger.info(f"Successfully enriched {enriched_count} of {len(remaining_casts)} remaining casts with Neo4j FID data")
         
-        # Start with Neo4j casts and mark them
-        combined_casts = list(neo4j_casts)
+        # Start with directly enriched casts and mark them
+        combined_casts = list(direct_enriched_casts)
         for cast in combined_casts:
-            cast["source"] = "neo4j_search"
+            cast["source"] = "neo4j_direct"
         
         # Create a set of hashes we already have
         existing_hashes = {c.get("hash") for c in combined_casts}
         
-        # Add the directly enriched casts (if not already in the results)
-        for cast in direct_enriched_casts:
-            if cast.get("hash") not in existing_hashes:
-                cast["source"] = "neo4j_direct"
-                combined_casts.append(cast)
-                existing_hashes.add(cast.get("hash"))
-        
-        # Finally, add the FID-enriched/raw Neynar casts (if not already in the results)
+        # Add the FID-enriched casts (if not already in the results)
         for cast in fid_enriched_casts:
             if cast.get("hash") not in existing_hashes:
-                # Source is already set in the fid_enriched_casts creation
                 combined_casts.append(cast)
                 existing_hashes.add(cast.get("hash"))
         
@@ -1114,8 +1221,9 @@ async def fetch_weighted_casts(
                 json.dump({
                     "query": request.query,
                     "timestamp": datetime.now().isoformat(),
-                    "neo4j_count": len(neo4j_casts),
+                    "mongo_count": len(mongo_casts),
                     "neynar_count": len(neynar_casts),
+                    "unique_mongo_count": len(remaining_mongo_casts),
                     "unique_neynar_count": len(remaining_neynar_casts),
                     "total_count": len(combined_casts),
                     "casts": combined_casts
@@ -1169,7 +1277,8 @@ async def fetch_weighted_casts(
         logger.error(f"Error retrieving weighted casts: {str(e)}")
         logger.exception("Detailed traceback:")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-        
+    
+            
 @app.on_event("shutdown")
 async def shutdown_event():
     """Close Neo4j driver connection when app shuts down"""
