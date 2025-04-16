@@ -226,6 +226,7 @@ class TokenData(BaseModel):
     diversityAdjustedScore: Optional[float] = Field(None, description="Believer score adjusted for token concentration")
     marketAdjustedScore: Optional[float] = Field(None, description="Believer score adjusted for market cap ratio")
     holderToMarketCapRatio: Optional[float] = Field(None, description="Ratio of holders to market cap")
+    avgBalance: Optional[float] = Field(None, description = "Average balance held")
     marketCap: Optional[float] = Field(None, description="Token market capitalization")
     walletCount: Optional[float] = Field(None, description="Total unique wallet holders")
     warpcastWallets: Optional[float] = Field(None, description="Number of wallets connected to Warpcast accounts")
@@ -718,6 +719,7 @@ async def retrieve_token_believer_scores(request: TokensRequest) -> Dict[str, An
             tofloat(diversity_adjusted_score) AS diversityAdjustedScore,
             tofloat(market_adjusted_score) AS marketAdjustedScore,
             tofloat(holder_mcap_ratio) AS holderToMarketCapRatio,
+            avg(tofloat(r.balance)) as avgBalance,
             tofloat(marketCap) AS marketCap,
             tofloat(num_wallets) AS walletCount,
             tofloat(warpcast_wallets) AS warpcastWallets,
