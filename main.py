@@ -32,13 +32,7 @@ def init_mongodb():
     
     try:
         MONGO_DB_URL = os.getenv("MONGO_DB_URL")
-        MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "farcaster")
-        
-        if not MONGO_DB_URL:
-            logger.warning("MongoDB URL not set. Using Neo4j only.")
-            return False
-        
-        # Sync client for initialization checks
+        MONGO_DB_NAME = "quotient"
         mongo_client = MongoClient(MONGO_DB_URL)
         
         # Async client for API operations
@@ -69,15 +63,14 @@ def init_mongodb():
         db = None
         async_db = None
         return False
-
 # Call the local init function
 init_mongodb()
 
 FARSTORE_PASS = os.getenv('FARSTORE_PASS')
 # Neo4j Configuration
-NEO4J_URI = os.getenv("NEO4J_URI")
+NEO4J_URI = os.getenv("NEO4J_PROD_URI")
 NEO4J_USERNAME = os.getenv("NEO4J_USERNAME")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
+NEO4J_PASSWORD = os.getenv("NEO4J_PROD_PASSWORD")
 NEYNAR_API_KEY = os.getenv("NEYNAR_API_KEY")
 NEO4J_DATABASE = None
 
@@ -719,7 +712,7 @@ async def retrieve_token_believer_scores(request: TokensRequest) -> Dict[str, An
             tofloat(diversity_adjusted_score) AS diversityAdjustedScore,
             tofloat(market_adjusted_score) AS marketAdjustedScore,
             tofloat(holder_mcap_ratio) AS holderToMarketCapRatio,
-            avg(tofloat(r.balance)) as avgBalance,
+            avg(tofloat(r.balance))
             tofloat(marketCap) AS marketCap,
             tofloat(num_wallets) AS walletCount,
             tofloat(warpcast_wallets) AS warpcastWallets,
@@ -891,14 +884,12 @@ async def fetch_weighted_casts(
         # ---------------------------------------------------------------------
         # 1) Fetch from MongoDB Atlas Search if available
         # ---------------------------------------------------------------------
-        mongo_casts = []
-        
         mongo_start_time = datetime.now()
-        # Try to get results from MongoDB
         mongo_casts_results = await search_casts(clean_query, limit=100)
         mongo_end_time = datetime.now()
         mongo_duration = (mongo_end_time - mongo_start_time).total_seconds()
         
+        mongo_casts = []
         if mongo_casts_results:
             logger.info(f"MongoDB Atlas Search completed in {mongo_duration:.2f} seconds, returned {len(mongo_casts_results)} results")
             
@@ -918,7 +909,7 @@ async def fetch_weighted_casts(
                     "relevanceScore": cast.get("score", 0)
                 })
         else:
-            logger.info(f"MongoDB Atlas Search returned no results or is not available, falling back to Neo4j only")
+            logger.info(f"MongoDB Atlas Search returned no results or is not available")
         
         # Log a sample of the MongoDB results
         if mongo_casts:
@@ -927,262 +918,119 @@ async def fetch_weighted_casts(
             for i, cast in enumerate(mongo_casts[:sample_size]):
                 logger.info(f"  Cast {i+1}: hash={cast.get('hash')}, author={cast.get('author_username')}, timestamp={cast.get('timestamp')}")
                 logger.info(f"    Text preview: {cast.get('text')[:50]}...")
-                
-        # ---------------------------------------------------------------------
-        # 1b) Also fetch from Neo4j if MongoDB returned few or no results
-        # ---------------------------------------------------------------------
-        neo4j_casts = []
-        
-        # Only query Neo4j if MongoDB returned fewer than 5 results
-        if len(mongo_casts) < 5:
-            neo4j_query = """
-            CALL db.index.fulltext.queryNodes("casts", $query) YIELD node, score
-            WITH node, score 
-            WHERE score > 4
-            AND node.timestamp IS NOT NULL
-            MATCH (node)-[:POSTED]-(wc:Warpcast:Account)
-            OPTIONAL MATCH (wc)-[:ACCOUNT]-(wallet:Wallet)
-            OPTIONAL MATCH (wc)-[:ACCOUNT]-(account:Account)
-            OPTIONAL MATCH ()-[rewards:REWARDS]->(:Wallet)-[:ACCOUNT]-(wc:Warpcast:Account)
-            WITH 
-                node.hash as hash,
-                node.timestamp as timestamp, 
-                node.text as castText,
-                wc.username as authorUsername,
-                tofloat(sum(coalesce(tofloat(wallet.balance), 0))) as walletEthStablesValueUsd,
-                wc.fid as authorFid,
-                wc.bio as authorBio,
-                wc.fcCredScore as fcs,
-                tofloat(sum(coalesce(tofloat(rewards.value), 0))) as farcaster_usdc_rewards_earned,
-                collect(distinct({platform: account.platform, username: account.username})) as linkedAccounts,
-                collect(distinct({address: wallet.address, network: wallet.network})) as linkedWallets
-            ORDER BY timestamp DESC
-            RETURN {
-                hash: hash,
-                timestamp: toString(timestamp),
-                text: castText,
-                author_username: authorUsername,
-                wallet_eth_stables_value_usd: walletEthStablesValueUsd,
-                author_fid: authorFid,
-                author_bio: authorBio,
-                author_farcaster_cred_score: fcs,
-                farcaster_usdc_rewards_earned: farcaster_usdc_rewards_earned,
-                linked_accounts: [acc IN linkedAccounts WHERE acc.platform <> "Wallet"],
-                linked_wallets: linkedWallets
-            } as cast
-            """
-            
-            neo4j_params = {"query": clean_query}
-            logger.info(f"Executing Neo4j query with params: {neo4j_params}")
-            neo4j_start_time = datetime.now()
-            
-            neo4j_results = execute_cypher(neo4j_query, neo4j_params)
-            neo4j_end_time = datetime.now()
-            neo4j_duration = (neo4j_end_time - neo4j_start_time).total_seconds()
-            logger.info(f"Neo4j query completed in {neo4j_duration:.2f} seconds, returned {len(neo4j_results)} results")
-            
-            neo4j_casts = [record.get("cast") for record in neo4j_results]
-            
-            # Log a sample of the Neo4j results
-            if neo4j_casts:
-                sample_size = min(5, len(neo4j_casts))
-                logger.info(f"Sample of {sample_size} Neo4j casts:")
-                for i, cast in enumerate(neo4j_casts[:sample_size]):
-                    logger.info(f"  Cast {i+1}: hash={cast.get('hash')}, author={cast.get('author_username')}, timestamp={cast.get('timestamp')}")
-                    logger.info(f"    Text preview: {cast.get('text')[:50]}...")
-                    
-                # Add neo4j source marker
-                for cast in neo4j_casts:
-                    cast["source"] = "neo4j_direct"
         
         # ---------------------------------------------------------------------
         # 2) Combine + De-duplicate (by cast hash)
         # ---------------------------------------------------------------------
-        # We need a more robust enrichment approach
+        # Instead of looking up by hash, we'll look up by FID to get author information
         
-        # First, try to directly enrich MongoDB and Neynar casts by looking up their hashes in Neo4j
-        # Combine the hashes from both sources
-        mongo_hashes = [cast.get("hash") for cast in mongo_casts if cast.get("hash")]
-        neynar_hashes = [cast.get("hash") for cast in neo4j_casts if cast.get("hash")]
-        all_hashes = list(set(mongo_hashes + neynar_hashes))  # Remove duplicates
+        # Collect all unique FIDs from MongoDB results
+        mongo_fids = [str(cast.get("author_fid")) for cast in mongo_casts if cast.get("author_fid")]
+        all_fids = list(set(mongo_fids))  # Remove duplicates
         
-        logger.info(f"Looking up {len(all_hashes)} cast hashes in Neo4j for direct enrichment")
+        logger.info(f"Looking up {len(all_fids)} unique FIDs in Neo4j for account enrichment")
         
-        # Direct cast enrichment query - find these exact casts in Neo4j
-        direct_enrichment_start_time = datetime.now()
-        cast_enrichment_query = """
-        MATCH (cast:Cast)
-        WHERE cast.hash IN $hashes
-        MATCH (cast)-[:POSTED]-(wc:Warpcast:Account)
+        # FID-based author enrichment query
+        enrichment_start_time = datetime.now()
+        fid_enrichment_query = """
+        MATCH (wc:Warpcast:Account)
+        WHERE tointeger(wc.fid) IN $fids
         OPTIONAL MATCH (wc)-[:ACCOUNT]-(wallet:Wallet)
         OPTIONAL MATCH (wc)-[:ACCOUNT]-(account:Account)
         OPTIONAL MATCH ()-[rewards:REWARDS]->(:Wallet)-[:ACCOUNT]-(wc:Warpcast:Account)
         WITH 
-            cast.hash as hash,
-            cast.timestamp as timestamp, 
-            cast.text as castText,
+            wc.fid as fid,
             wc.username as authorUsername,
-            tofloat(sum(coalesce(tofloat(wallet.balance), 0))) as walletEthStablesValueUsd,
-            wc.fid as authorFid,
             wc.bio as authorBio,
-            wc.fcCredScore as fcs,
+            wc.fcCredScore as fcCredScore,
+            tofloat(sum(coalesce(tofloat(wallet.balance), 0))) as walletEthStablesValueUsd,
             tofloat(sum(coalesce(tofloat(rewards.value), 0))) as farcaster_usdc_rewards_earned,
             collect(distinct({platform: account.platform, username: account.username})) as linkedAccounts,
             collect(distinct({address: wallet.address, network: wallet.network})) as linkedWallets
-        RETURN {
-            hash: hash,
-            timestamp: toString(timestamp),
-            text: castText,
-            author_username: authorUsername,
-            wallet_eth_stables_value_usd: walletEthStablesValueUsd,
-            author_fid: authorFid,
-            author_bio: authorBio, 
-            author_farcaster_cred_score: fcs,
-            farcaster_usdc_rewards_earned: farcaster_usdc_rewards_earned,
-            linked_accounts: [acc IN linkedAccounts WHERE acc.platform <> "Wallet"],
-            linked_wallets: linkedWallets
-        } as cast
+        RETURN 
+            fid,
+            authorUsername,
+            authorBio,
+            fcCredScore,
+            walletEthStablesValueUsd,
+            farcaster_usdc_rewards_earned,
+            [acc IN linkedAccounts WHERE acc.platform <> "Wallet"] as linkedAccounts,
+            linkedWallets
         """
         
-        # Execute the direct cast enrichment
-        direct_enrichment_results = []
-        if all_hashes:
-            direct_enrichment_results = execute_cypher(cast_enrichment_query, {"hashes": all_hashes})
+        # Execute the FID-based enrichment query
+        enrichment_results = []
+        if all_fids:
+            # Run the Neo4j query test to verify connection
+            try:
+                test_result = execute_cypher("RETURN 1 as test", {})
+                logger.info(f"Neo4j test query result: {test_result}")
+                
+                # Execute the actual enrichment query
+                enrichment_results = execute_cypher(fid_enrichment_query, {"fids": all_fids})
+            except Exception as ne:
+                logger.error(f"Neo4j query failed: {str(ne)}")
+                enrichment_results = []
         
-        direct_enriched_casts = [record.get("cast") for record in direct_enrichment_results]
-        directly_enriched_hashes = {cast.get("hash") for cast in direct_enriched_casts}
-        
-        direct_enrichment_end_time = datetime.now()
-        direct_enrichment_duration = (direct_enrichment_end_time - direct_enrichment_start_time).total_seconds()
-        logger.info(f"Directly enriched {len(directly_enriched_hashes)} casts from Neo4j by hash in {direct_enrichment_duration:.2f} seconds")
-        
-        # Find casts that weren't directly enriched by hash
-        remaining_mongo_casts = [cast for cast in mongo_casts if cast.get("hash") not in directly_enriched_hashes]
-        remaining_neynar_casts = [cast for cast in neo4j_casts if cast.get("hash") not in directly_enriched_hashes]
-        
-        # Combine remaining casts from both sources
-        remaining_casts = remaining_mongo_casts + remaining_neynar_casts
-        
-        logger.info(f"Still need to enrich {len(remaining_casts)} casts by FID")
-        
-        # For the remaining casts, use FID-based enrichment
-        remaining_fids = {
-            str(c.get("author_fid")) for c in remaining_casts if c.get("author_fid")
-        }
-        
-        # FID enrichment map for the remaining casts
+        # Build FID -> enrichment data map
         fid_enrichment_map = {}
-        fid_enriched_casts = []
-        
-        # Always attempt to enrich remaining casts if there are any
-        if remaining_fids:
-            logger.info(f"Found {len(remaining_fids)} unique FIDs in remaining casts to enrich from Neo4j")
-            fid_enrichment_start_time = datetime.now()
-            
-            # Enrich them from Neo4j
-            enrichment_query = """
-            MATCH (wc:Warpcast:Account)
-            WHERE wc.fid IN $fids
-            OPTIONAL MATCH (wc)-[:ACCOUNT]-(wallet:Wallet)
-            OPTIONAL MATCH (wc)-[:ACCOUNT]-(account:Account)
-            OPTIONAL MATCH ()-[rewards:REWARDS]->(:Wallet)-[:ACCOUNT]-(wc:Warpcast:Account)
-            WITH 
-                wc.fid as fid,
-                wc.username as authorUsername,
-                wc.bio as authorBio,
-                wc.fcCredScore as fcCredScore,
-                tofloat(sum(coalesce(tofloat(wallet.balance), 0))) as walletEthStablesValueUsd,
-                tofloat(sum(coalesce(tofloat(rewards.value), 0))) as farcaster_usdc_rewards_earned,
-                collect(distinct({platform: account.platform, username: account.username})) as linkedAccounts,
-                collect(distinct({address: wallet.address, network: wallet.network})) as linkedWallets
-            RETURN 
-                fid,
-                authorUsername,
-                authorBio,
-                fcCredScore,
-                walletEthStablesValueUsd,
-                farcaster_usdc_rewards_earned,
-                [acc IN linkedAccounts WHERE acc.platform <> "Wallet"] as linkedAccounts,
-                linkedWallets
-            """
-            
-            enrichment_results = execute_cypher(enrichment_query, {"fids": list(remaining_fids)})
-            
-            fid_enrichment_end_time = datetime.now()
-            fid_enrichment_duration = (fid_enrichment_end_time - fid_enrichment_start_time).total_seconds()
-            logger.info(f"FID enrichment query completed in {fid_enrichment_duration:.2f} seconds, returned data for {len(enrichment_results)} FIDs")
-            
-            # Build a map from fid -> dict of enrichment
-            for record in enrichment_results:
-                fid = record.get("fid")
-                if fid:
-                    fid_enrichment_map[fid] = {
-                        "authorUsername": record.get("authorUsername"),
-                        "authorBio": record.get("authorBio"),
-                        "fcCredScore": record.get("fcCredScore"),
-                        "walletEthStablesValueUsd": record.get("walletEthStablesValueUsd"),
-                        "farcaster_usdc_rewards_earned": record.get("farcaster_usdc_rewards_earned"),
-                        "linkedAccounts": record.get("linkedAccounts", []),
-                        "linkedWallets": record.get("linkedWallets", []),
-                    }
-            
-            # Apply FID-based enrichment to the remaining casts
-            enriched_count = 0
-            for cast in remaining_casts:
-                fid = cast.get("author_fid")
-                
-                # Create a structured cast with all required fields
-                enriched_cast = {
-                    "hash": cast.get("hash"),
-                    "timestamp": cast.get("timestamp"),
-                    "text": cast.get("text"),
-                    "author_username": cast.get("author_username", ""),
-                    "author_fid": cast.get("author_fid"),
-                    "author_bio": cast.get("author_bio", ""),
-                    # Default values for Neo4j fields
-                    "author_farcaster_cred_score": None,
-                    "wallet_eth_stables_value_usd": 0,
-                    "farcaster_usdc_rewards_earned": 0,
-                    "linked_accounts": [],
-                    "linked_wallets": []
+        for record in enrichment_results:
+            fid = record.get("fid")
+            if fid:
+                fid_enrichment_map[fid] = {
+                    "authorUsername": record.get("authorUsername"),
+                    "authorBio": record.get("authorBio"),
+                    "fcCredScore": record.get("fcCredScore"),
+                    "walletEthStablesValueUsd": record.get("walletEthStablesValueUsd"),
+                    "farcaster_usdc_rewards_earned": record.get("farcaster_usdc_rewards_earned"),
+                    "linkedAccounts": record.get("linkedAccounts", []),
+                    "linkedWallets": record.get("linkedWallets", []),
                 }
-                
-                # If we have FID enrichment data, update the structured cast
-                if fid and fid in fid_enrichment_map:
-                    enriched_count += 1
-                    enr = fid_enrichment_map[fid]
-                    
-                    # Update with enrichment data
-                    enriched_cast["author_username"] = enr["authorUsername"] or cast.get("author_username", "")
-                    enriched_cast["author_bio"] = enr["authorBio"] or cast.get("author_bio", "")
-                    enriched_cast["author_farcaster_cred_score"] = enr["fcCredScore"]
-                    enriched_cast["wallet_eth_stables_value_usd"] = enr["walletEthStablesValueUsd"]
-                    enriched_cast["farcaster_usdc_rewards_earned"] = enr["farcaster_usdc_rewards_earned"]
-                    enriched_cast["linked_accounts"] = enr["linkedAccounts"]
-                    enriched_cast["linked_wallets"] = enr["linkedWallets"]
-                
-                # Add a source marker
-                source_type = "mongo" if cast in remaining_mongo_casts else "neynar"
-                enriched_cast["source"] = f"{source_type}_fid_enriched" if fid and fid in fid_enrichment_map else f"{source_type}_raw"
-                
-                # Add to the list of FID-enriched casts
-                fid_enriched_casts.append(enriched_cast)
+        
+        enrichment_end_time = datetime.now()
+        enrichment_duration = (enrichment_end_time - enrichment_start_time).total_seconds()
+        logger.info(f"FID enrichment query completed in {enrichment_duration:.2f} seconds, returned data for {len(fid_enrichment_map)} FIDs")
+        
+        # Now, enrich all casts with the FID data
+        enriched_mongo_casts = []
+        for cast in mongo_casts:
+            fid = str(cast.get("author_fid"))
             
-            logger.info(f"Successfully enriched {enriched_count} of {len(remaining_casts)} remaining casts with Neo4j FID data")
+            # Create a structured cast with all required fields
+            enriched_cast = {
+                "hash": cast.get("hash"),
+                "timestamp": cast.get("timestamp"),
+                "text": cast.get("text"),
+                "author_username": cast.get("author_username", ""),
+                "author_fid": cast.get("author_fid"),
+                "author_bio": "",
+                # Default values for Neo4j fields
+                "author_farcaster_cred_score": None,
+                "wallet_eth_stables_value_usd": 0,
+                "farcaster_usdc_rewards_earned": 0,
+                "linked_accounts": [],
+                "linked_wallets": [],
+                "source": "mongo_raw"
+            }
+            
+            # If we have FID enrichment data, update the structured cast
+            if fid and fid in fid_enrichment_map:
+                enr = fid_enrichment_map[fid]
+                
+                # Update with enrichment data
+                enriched_cast["author_username"] = enr["authorUsername"] or cast.get("author_username", "")
+                enriched_cast["author_bio"] = enr["authorBio"] or ""
+                enriched_cast["author_farcaster_cred_score"] = enr["fcCredScore"]
+                enriched_cast["wallet_eth_stables_value_usd"] = enr["walletEthStablesValueUsd"]
+                enriched_cast["farcaster_usdc_rewards_earned"] = enr["farcaster_usdc_rewards_earned"]
+                enriched_cast["linked_accounts"] = enr["linkedAccounts"]
+                enriched_cast["linked_wallets"] = enr["linkedWallets"]
+                enriched_cast["source"] = "mongo_enriched"
+            
+            enriched_mongo_casts.append(enriched_cast)
         
-        # Start with directly enriched casts and mark them
-        combined_casts = list(direct_enriched_casts)
-        for cast in combined_casts:
-            cast["source"] = "neo4j_direct"
-        
-        # Create a set of hashes we already have
-        existing_hashes = {c.get("hash") for c in combined_casts}
-        
-        # Add the FID-enriched casts (if not already in the results)
-        for cast in fid_enriched_casts:
-            if cast.get("hash") not in existing_hashes:
-                combined_casts.append(cast)
-                existing_hashes.add(cast.get("hash"))
+        # Combine all enriched casts
+        combined_casts = enriched_mongo_casts
         
         # Sort final combined set by timestamp desc
         combined_casts.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
@@ -1205,7 +1053,7 @@ async def fetch_weighted_casts(
                 logger.info(f"    Text preview: {cast.get('text')[:50]}...")
         
         # ---------------------------------------------------------------------
-        # 4) Save to JSON (optional, like your snippet), for debugging
+        # 3) Save to JSON (optional, like your snippet), for debugging
         # ---------------------------------------------------------------------
         try:
             os.makedirs("data/query_results", exist_ok=True)
@@ -1218,9 +1066,7 @@ async def fetch_weighted_casts(
                     "query": request.query,
                     "timestamp": datetime.now().isoformat(),
                     "mongo_count": len(mongo_casts),
-                    "neynar_count": len(neo4j_casts),
-                    "unique_mongo_count": len(remaining_mongo_casts),
-                    "unique_neynar_count": len(remaining_neynar_casts),
+                    "enriched_mongo_count": len([c for c in combined_casts if c.get("source") == "mongo_enriched"]),
                     "total_count": len(combined_casts),
                     "casts": combined_casts
                 }, f, ensure_ascii=False, indent=2)
@@ -1272,8 +1118,7 @@ async def fetch_weighted_casts(
     except Exception as e:
         logger.error(f"Error retrieving weighted casts: {str(e)}")
         logger.exception("Detailed traceback:")
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-    
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")    
             
 @app.on_event("shutdown")
 async def shutdown_event():
