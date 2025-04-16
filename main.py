@@ -33,7 +33,6 @@ def init_mongodb():
     try:
         MONGO_DB_URL = os.getenv("MONGO_DB_URL")
         MONGO_DB_NAME = "quotient"
-        # Sync client for initialization checks
         mongo_client = MongoClient(MONGO_DB_URL)
         
         # Async client for API operations
@@ -46,9 +45,23 @@ def init_mongodb():
         # Test the connection
         db_info = mongo_client.server_info()
         logger.info(f"Connected to MongoDB: {db_info.get('version')}")
+        
+        # List available collections
+        collection_names = db.list_collection_names()
+        logger.info(f"MongoDB collections: {', '.join(collection_names)}")
+        
+        # Check if we have the casts collection
+        if 'casts' not in collection_names:
+            logger.warning("Casts collection not found in MongoDB")
+        
         return True
     except Exception as e:
         logger.error(f"MongoDB connection error: {str(e)}")
+        # Set these to None to indicate they're not available
+        mongo_client = None
+        async_mongo_client = None
+        db = None
+        async_db = None
         return False
 # Call the local init function
 init_mongodb()
@@ -94,16 +107,21 @@ async def search_casts(query: str, limit: int = 100) -> List[Dict[str, Any]]:
         List of matching cast documents
     """
     try:
+        # Check if MongoDB is available
+        if async_db is None:
+            logger.warning("MongoDB is not available for search, returning empty results")
+            return []
+            
         logger.info(f"Searching MongoDB for casts with query: '{query}', limit: {limit}")
         
         # Use Atlas Search query with text search operator
         search_pipeline = [
             {
                 "$search": {
-                    "index": "default",  # Update with your actual search index name
+                    "index": "default",  # Using the default text index
                     "text": {
                         "query": query,
-                        "path": ["text", "author", "mentionedUsernames"],  # Adjust fields as needed
+                        "path": ["text", "author", "mentionedUsernames"],  # Fields to search
                         "fuzzy": {
                             "maxEdits": 2,
                             "prefixLength": 1
@@ -201,6 +219,7 @@ class TokenData(BaseModel):
     diversityAdjustedScore: Optional[float] = Field(None, description="Believer score adjusted for token concentration")
     marketAdjustedScore: Optional[float] = Field(None, description="Believer score adjusted for market cap ratio")
     holderToMarketCapRatio: Optional[float] = Field(None, description="Ratio of holders to market cap")
+    avgBalance: Optional[float] = Field(None, description = "Average balance held")
     marketCap: Optional[float] = Field(None, description="Token market capitalization")
     walletCount: Optional[float] = Field(None, description="Total unique wallet holders")
     warpcastWallets: Optional[float] = Field(None, description="Number of wallets connected to Warpcast accounts")
@@ -286,8 +305,7 @@ class TopBelieversData(BaseModel):
     bio: str = Field(..., description="User Farcaster Bio.")
     pfpUrl: str = Field(..., description="PFP URL for user.")
     fcred: float = Field(..., description="User Farcaster Cred Score (i.e. Social Cred Score).")
-    walletBalance: float = Field(..., description="Estimated user wallet balance in ETH + USD stablecoins.")
-    farcasterRewardsEarned: float = Field(..., description="Developer + Creator + Referral rewards paid to user by Farcaster.")
+    balance: float = Field(..., description="Estimated balance of token held by believer, across Farcaster-linked wallets.")
 
 
     
@@ -694,6 +712,7 @@ async def retrieve_token_believer_scores(request: TokensRequest) -> Dict[str, An
             tofloat(diversity_adjusted_score) AS diversityAdjustedScore,
             tofloat(market_adjusted_score) AS marketAdjustedScore,
             tofloat(holder_mcap_ratio) AS holderToMarketCapRatio,
+            avg(tofloat(r.balance))
             tofloat(marketCap) AS marketCap,
             tofloat(num_wallets) AS walletCount,
             tofloat(warpcast_wallets) AS warpcastWallets,
@@ -757,11 +776,13 @@ async def get_token_top_believers(request: BelieversDataRequest) -> Dict[str, An
         MATCH (believerWallet)-[:ACCOUNT*..4]-(wc:Warpcast:Account)  
         WHERE wc.fcCredScore is not null       
         ORDER BY wc.fcCredScore DESC LIMIT 25
+        WITH wc, sum(tofloat(r.balance)) as balance
         RETURN {
             top_believers: COLLECT(DISTINCT({
                 fid: tointeger(wc.fid),
                 username: wc.username,
                 bio: wc.bio,
+                balance: balance,
                 pfpUrl: wc.pfpUrl,
                 fcred: wc.fcCredScore
             }))
@@ -855,37 +876,40 @@ async def fetch_weighted_casts(
         combined_casts = []
         
         # ---------------------------------------------------------------------
-        # 0) Clean the user's query for MongoDB Atlas Search
+        # 0) Clean the user's query for Neo4j fulltext and MongoDB Atlas Search
         # ---------------------------------------------------------------------
         clean_query = clean_query_for_lucene(request.query)
         logger.info(f"User's raw search: '{request.query}', cleaned for search: '{clean_query}'")
         
         # ---------------------------------------------------------------------
-        # 1) Fetch from MongoDB Atlas Search (replacing Neo4j fulltext search)
+        # 1) Fetch from MongoDB Atlas Search if available
         # ---------------------------------------------------------------------
         mongo_start_time = datetime.now()
         mongo_casts_results = await search_casts(clean_query, limit=100)
         mongo_end_time = datetime.now()
         mongo_duration = (mongo_end_time - mongo_start_time).total_seconds()
         
-        logger.info(f"MongoDB Atlas Search completed in {mongo_duration:.2f} seconds, returned {len(mongo_casts_results)} results")
-        
-        # Process MongoDB results into a consistent format
         mongo_casts = []
-        for cast in mongo_casts_results:
-            mongo_casts.append({
-                "hash": cast.get("hash"),
-                "timestamp": cast.get("timestamp") or cast.get("createdAt", ""),
-                "text": cast.get("text", ""),
-                "author_username": cast.get("author", ""),
-                "author_fid": cast.get("authorFid"),
-                "author_bio": "",  # Will be enriched from Neo4j
-                "likeCount": cast.get("likeCount", 0),
-                "replyCount": cast.get("replyCount", 0),
-                "mentionedChannels": cast.get("mentionedChannelIds", []),
-                "mentionedUsers": cast.get("mentionedUsernames", []),
-                "relevanceScore": cast.get("score", 0)
-            })
+        if mongo_casts_results:
+            logger.info(f"MongoDB Atlas Search completed in {mongo_duration:.2f} seconds, returned {len(mongo_casts_results)} results")
+            
+            # Process MongoDB results into a consistent format
+            for cast in mongo_casts_results:
+                mongo_casts.append({
+                    "hash": cast.get("hash"),
+                    "timestamp": cast.get("timestamp") or cast.get("createdAt", ""),
+                    "text": cast.get("text", ""),
+                    "author_username": cast.get("author", ""),
+                    "author_fid": cast.get("authorFid"),
+                    "author_bio": "",  # Will be enriched from Neo4j
+                    "likeCount": cast.get("likeCount", 0),
+                    "replyCount": cast.get("replyCount", 0),
+                    "mentionedChannels": cast.get("mentionedChannelIds", []),
+                    "mentionedUsers": cast.get("mentionedUsernames", []),
+                    "relevanceScore": cast.get("score", 0)
+                })
+        else:
+            logger.info(f"MongoDB Atlas Search returned no results or is not available")
         
         # Log a sample of the MongoDB results
         if mongo_casts:
@@ -896,116 +920,13 @@ async def fetch_weighted_casts(
                 logger.info(f"    Text preview: {cast.get('text')[:50]}...")
         
         # ---------------------------------------------------------------------
-        # 2) Repeated calls to Neynar with cursor, stopping at 2025-03-31
-        # ---------------------------------------------------------------------
-        neynar_casts = []
-        neynar_api_key = NEYNAR_API_KEY
-        
-        if not neynar_api_key:
-            logger.warning("Neynar API key not found; skipping Neynar calls.")
-        else:
-            # We'll keep calling until we see a cast at or before `2025-03-31`,
-            # or until `nextCursor` is not returned.
-            
-            neynar_url = "https://api.neynar.com/v2/farcaster/cast/search"
-            headers = {
-                "accept": "application/json",
-                "x-api-key": neynar_api_key
-            }
-            
-            neynar_query = f"{request.query} after:2025-03-31"
-            
-            # We'll start with no `cursor`
-            current_cursor = None
-            keep_going = True
-            neynar_call_count = 0
-            neynar_start_time = datetime.now()
-            
-            while keep_going:
-                params = {
-                    "q": neynar_query,
-                    "limit": 100,                
-                    "sort_type": "desc_chron",
-                }
-                if current_cursor:
-                    params["cursor"] = current_cursor
-                
-                logger.info(f"Calling Neynar API (call #{neynar_call_count+1}) with params: {params}")
-                call_start_time = datetime.now()
-                
-                try:
-                    async with httpx.AsyncClient() as client:
-                        response = await client.get(neynar_url, headers=headers, params=params)
-                    
-                    call_end_time = datetime.now()
-                    call_duration = (call_end_time - call_start_time).total_seconds()
-                    neynar_call_count += 1
-                    
-                    if response.status_code != 200:
-                        logger.error(f"Neynar API error: {response.status_code} - {response.text}")
-                        break  # exit loop, can't do anything more
-                        
-                    neynar_data = response.json()
-                    
-                    # Extract casts and nextCursor
-                    neynar_raw_casts = neynar_data.get("result", {}).get("casts", [])
-                    next_cursor = neynar_data.get("result", {}).get("nextCursor", None)
-                    
-                    logger.info(f"Received {len(neynar_raw_casts)} casts from Neynar in {call_duration:.2f} seconds. nextCursor: {next_cursor}")
-                    
-                    # Convert raw Neynar data to a simpler structure
-                    for c in neynar_raw_casts:
-                        neynar_casts.append({
-                            "hash": c.get("hash"),
-                            "timestamp": c.get("timestamp"),
-                            "text": c.get("text"),
-                            "author_fid": c.get("author", {}).get("fid"),
-                            "author_username": c.get("author", {}).get("username"),
-                            "author_bio": c.get("author", {}).get("bio", "")
-                        })
-                    
-                    # Check if there's any cast with timestamp <= "2025-03-31"
-                    cutoff_date_str = "2025-03-31T00:00:00Z"
-                    for c in neynar_raw_casts:
-                        cast_time = c.get("timestamp", "")
-                        if cast_time <= cutoff_date_str:
-                            logger.info(f"Found a cast at or before 2025-03-31 (timestamp: {cast_time}); stopping further Neynar paging.")
-                            keep_going = False
-                            break
-                    
-                    # If we didn't break, and there's no nextCursor, we also stop
-                    if keep_going and not next_cursor:
-                        logger.info("Neynar has no further results. Stopping.")
-                        keep_going = False
-                    else:
-                        # Move to next page
-                        current_cursor = next_cursor
-                    
-                except Exception as api_error:
-                    logger.error(f"Error calling Neynar API: {str(api_error)}")
-                    keep_going = False
-            
-            neynar_end_time = datetime.now()
-            neynar_duration = (neynar_end_time - neynar_start_time).total_seconds()
-            logger.info(f"Completed {neynar_call_count} Neynar API calls in {neynar_duration:.2f} seconds, retrieved {len(neynar_casts)} total casts")
-            
-            # Log a sample of the Neynar results (last 5)
-            if neynar_casts:
-                sample_size = min(5, len(neynar_casts))
-                logger.info(f"Sample of last {sample_size} Neynar casts:")
-                for i, cast in enumerate(neynar_casts[-sample_size:]):
-                    logger.info(f"  Cast {i+1}: hash={cast.get('hash')}, author={cast.get('author_username')}, timestamp={cast.get('timestamp')}")
-                    logger.info(f"    Text preview: {cast.get('text')[:50]}...")
-        
-        # ---------------------------------------------------------------------
-        # 3) Combine + De-duplicate (by cast hash)
+        # 2) Combine + De-duplicate (by cast hash)
         # ---------------------------------------------------------------------
         # Instead of looking up by hash, we'll look up by FID to get author information
         
-        # Collect all unique FIDs from both MongoDB and Neynar results
+        # Collect all unique FIDs from MongoDB results
         mongo_fids = [str(cast.get("author_fid")) for cast in mongo_casts if cast.get("author_fid")]
-        neynar_fids = [str(cast.get("author_fid")) for cast in neynar_casts if cast.get("author_fid")]
-        all_fids = list(set(mongo_fids + neynar_fids))  # Remove duplicates
+        all_fids = list(set(mongo_fids))  # Remove duplicates
         
         logger.info(f"Looking up {len(all_fids)} unique FIDs in Neo4j for account enrichment")
         
@@ -1108,56 +1029,8 @@ async def fetch_weighted_casts(
             
             enriched_mongo_casts.append(enriched_cast)
         
-        # Enrich Neynar casts
-        enriched_neynar_casts = []
-        for cast in neynar_casts:
-            fid = str(cast.get("author_fid"))
-            
-            # Create a structured cast with all required fields
-            enriched_cast = {
-                "hash": cast.get("hash"),
-                "timestamp": cast.get("timestamp"),
-                "text": cast.get("text"),
-                "author_username": cast.get("author_username", ""),
-                "author_fid": cast.get("author_fid"),
-                "author_bio": cast.get("author_bio", ""),
-                # Default values for Neo4j fields
-                "author_farcaster_cred_score": None,
-                "wallet_eth_stables_value_usd": 0,
-                "farcaster_usdc_rewards_earned": 0,
-                "linked_accounts": [],
-                "linked_wallets": [],
-                "source": "neynar_raw"
-            }
-            
-            # If we have FID enrichment data, update the structured cast
-            if fid and fid in fid_enrichment_map:
-                enr = fid_enrichment_map[fid]
-                
-                # Update with enrichment data
-                enriched_cast["author_username"] = enr["authorUsername"] or cast.get("author_username", "")
-                enriched_cast["author_bio"] = enr["authorBio"] or cast.get("author_bio", "")
-                enriched_cast["author_farcaster_cred_score"] = enr["fcCredScore"]
-                enriched_cast["wallet_eth_stables_value_usd"] = enr["walletEthStablesValueUsd"]
-                enriched_cast["farcaster_usdc_rewards_earned"] = enr["farcaster_usdc_rewards_earned"]
-                enriched_cast["linked_accounts"] = enr["linkedAccounts"]
-                enriched_cast["linked_wallets"] = enr["linkedWallets"]
-                enriched_cast["source"] = "neynar_enriched"
-            
-            enriched_neynar_casts.append(enriched_cast)
-        
-        # Combine all enriched casts and remove duplicates by hash
-        all_enriched_casts = enriched_mongo_casts + enriched_neynar_casts
-        
-        # De-duplicate by hash
-        combined_casts = []
-        seen_hashes = set()
-        
-        for cast in all_enriched_casts:
-            cast_hash = cast.get("hash")
-            if cast_hash and cast_hash not in seen_hashes:
-                combined_casts.append(cast)
-                seen_hashes.add(cast_hash)
+        # Combine all enriched casts
+        combined_casts = enriched_mongo_casts
         
         # Sort final combined set by timestamp desc
         combined_casts.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
@@ -1180,7 +1053,7 @@ async def fetch_weighted_casts(
                 logger.info(f"    Text preview: {cast.get('text')[:50]}...")
         
         # ---------------------------------------------------------------------
-        # 4) Save to JSON (optional, like your snippet), for debugging
+        # 3) Save to JSON (optional, like your snippet), for debugging
         # ---------------------------------------------------------------------
         try:
             os.makedirs("data/query_results", exist_ok=True)
@@ -1193,9 +1066,7 @@ async def fetch_weighted_casts(
                     "query": request.query,
                     "timestamp": datetime.now().isoformat(),
                     "mongo_count": len(mongo_casts),
-                    "neynar_count": len(neynar_casts),
                     "enriched_mongo_count": len([c for c in combined_casts if c.get("source") == "mongo_enriched"]),
-                    "enriched_neynar_count": len([c for c in combined_casts if c.get("source") == "neynar_enriched"]),
                     "total_count": len(combined_casts),
                     "casts": combined_casts
                 }, f, ensure_ascii=False, indent=2)
