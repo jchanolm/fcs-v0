@@ -624,7 +624,7 @@ async def get_token_top_believers(request: BelieversDataRequest) -> Dict[str, An
         # Query to find top believers
         query = """
       MATCH (believerWallet:Wallet)-[r:HOLDS]->(token:Token {address:$token_address})
-        MATCH (believerWallet)-[:ACCOUNT]-(wc:Warpcast:Account)  
+        MATCH (wc:Warpcast:Account)-[:ACCOUNT]->(believerWallet)  
         WHERE wc.fcCredScore is not null       
         ORDER BY wc.fcCredScore DESC LIMIT 100
         WITH wc, sum(tofloat(r.balance)) as balance
