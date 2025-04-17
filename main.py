@@ -126,69 +126,30 @@ def execute_cypher(query, params=None):
         logger.error(f"Neo4j query execution error: {str(e)}")
         return []  # Return empty results on error
 
-async def search_casts(query: str, limit: int = 100) -> List[Dict[str, Any]]:
-    """
-    Search for casts using MongoDB Atlas Search
-    
-    Args:
-        query: The search query to execute
-        limit: Maximum number of results to return
-        
-    Returns:
-        List of matching cast documents
-    """
-    try:
-        # Check if MongoDB is available
-        if async_db is None:
-            logger.warning("MongoDB is not available for search, returning empty results")
-            return []
-            
-        logger.info(f"Searching MongoDB for casts with query: '{query}', limit: {limit}")
-        
-        # Use Atlas Search query with text search operator
-        search_pipeline = [
-            {
-                "$search": {
-                    "index": "default",  # Using the default text index
-                    "text": {
-                        "query": query,
-                        "path": ["text", "author", "mentionedUsernames"],  # Fields to search
-                        "fuzzy": {
-                            "maxEdits": 2,
-                            "prefixLength": 1
-                        }
-                    }
-                }
-            },
-            {
-                "$limit": limit
-            },
-            # Add search score
-            {
-                "$addFields": {
-                    "score": {
-                        "$meta": "searchScore"
-                    }
-                }
-            }
-        ]
-        
-        # Execute the search pipeline
-        results = await async_db.casts.aggregate(search_pipeline).to_list(length=limit)
-        
-        logger.info(f"MongoDB search returned {len(results)} cast results")
-        
-        # Convert MongoDB _id to string
-        for doc in results:
-            if "_id" in doc:
-                doc["_id"] = str(doc["_id"])
-        
-        return results
-    
-    except Exception as e:
-        logger.error(f"MongoDB search error: {str(e)}")
-        logger.exception("MongoDB search exception:")
+async def search_mongo_casts(miniapp_name: str, limit: int = 100) -> List[Dict[str, Any]]:
+    """Query the Atlas Search index "text" on the `casts` collection."""
+    if async_db is None:
+        logger.warning("MongoDB connection not initialised – skipping search")
         return []
+
+    search_pipeline = [
+        {
+            "$search": {
+                "index": "text",           # name of your Atlas index
+                "text": {
+                    "query": miniapp_name,
+                    "path": {"wildcard": "*"},  # search across every indexed field
+                    "fuzzy": {"maxEdits": 2, "prefixLength": 1},
+                },
+            }
+        },
+        {"$limit": limit},
+        {"$addFields": {"score": {"$meta": "searchScore"}}},
+    ]
+
+    results = await async_db.casts.aggregate(search_pipeline).to_list(length=limit)
+    logger.info("Atlas Search returned %s casts", len(results))
+    return results
 
 async def get_casts_by_hashes(hashes: List[str]) -> List[Dict[str, Any]]:
     """
@@ -410,74 +371,7 @@ async def root():
     return {"message": "Token API is running"}
 
 
-@app.post(
-    "/farstore-miniapp-mentions-counts", 
-    summary="Get mentions data for miniapps",
-    description="Retrieves mention counts and statistics for miniapps from Farstore. API key required for authentication.",
-    tags=["Farstore"],
-    responses={
-        200: {"description": "Successfully retrieved miniapp mentions data"},
-        401: {"description": "Unauthorized - Invalid API key"},
-        404: {"description": "No miniapp mention data found"},
-        500: {"description": "Internal Server Error"}
-    }
-)
-async def farstore_miniapp_mentions(
-    api_key: str = Query(..., description="API key for authentication", example="something.something")
-) -> Dict[str, Any]:
-    """
-    Get mentions data for miniapps from farstore
-    
-    - Requires valid API key for authentication
-    - Returns mentions counts, weighted scores, and unique casters for each miniapp
-    """
-    # Validate API key
-    if api_key != FARSTORE_PASS:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-    
-    try:
-        # Neo4j query to fetch miniapp mentions
-        query = """
-        MATCH
-            (m:Miniapp:Farstore)
-        WITH 
-            COLLECT(DISTINCT {
-            name: m.name,
-            frameUrl: m.frameUrl,
-            mentionsAllTime: tofloat(m.mentionsAllTime),
-            uniqueCasters: tointeger(m.uniqueCasters),
-            rawWeightedCasts: tofloat(m.rawWeightedCasts),
-            weightedCasts: tofloat(m.weightedCastsDiversityMultiplier),
-            avgFcsCredScore: tofloat(m.avgCredScore)
-            }) as mentions_counts
-        RETURN
-            {
-                mentions: mentions_counts
-            } as data
-        """
-        # Execute query
-        results = execute_cypher(query)
         
-        # Process results
-        if not results or len(results) == 0:
-            raise HTTPException(status_code=404, detail="No miniapp mention data found")
-        
-        # Extract the data from the Neo4j result and convert it to the expected format
-        neo4j_data = results[0].get("data")
-        mentions_data = neo4j_data.get("mentions", [])
-        
-        # Create a valid response object
-        response_data = {
-            "data": {
-                "mentions": mentions_data
-            }
-        }
-        
-        return response_data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-    
-
 @app.post(
     "/farstore-miniapp-key-promoters", 
     summary="Get key promoters for a miniapp",
@@ -490,61 +384,126 @@ async def farstore_miniapp_mentions(
         500: {"description": "Internal Server Error"}
     }
 )
+@app.post(
+    "/farstore-miniapp-key-promoters",
+    summary="Get key promoters for a miniapp",
+    description=(
+        "Search Neynar and MongoDB for casts mentioning a mini‑app, merge the \n"
+        "results, enrich each author with fcCredScore from Neo4j, and return \n"
+        "the top 25 promoters ordered by credibility score."
+    ),
+    tags=["Farstore"],
+)
 async def retrieve_miniapp_key_promoters(
-    request: KeyPromotersRequest, 
-    api_key: str = Query(..., description="API key for authentication", example="password.lol")
+    request: KeyPromotersRequest,
+    api_key: str = Query(..., description="API key for authentication"),
 ) -> Dict[str, Any]:
-    """
-    Retrieve key promoters for provided miniapp
-    
-    - Requires valid API key for authentication
-    - Returns top promoters with their FID, username, credibility score, and recent casts
-    """
-    # Validate API key
+    # --------------- Auth -----------------
     if api_key != FARSTORE_PASS:
         raise HTTPException(status_code=401, detail="Invalid API key")
-        
-    try: 
-        ### get casts
-        query = """
-        CALL db.index.fulltext.queryNodes("frames", $query) YIELD node, score
-        WITH node as cast
-        MATCH (cast)-[r:POSTED]-(wc:Warpcast:Account)
-        WHERE NOT (wc)-[:CREATED]->(:Miniapp {frameUrl: $query})
-        WITH wc, wc.fcCredScore as fcCredScore, wc.username as username, wc.fid as fid, cast
-        ORDER BY fcCredScore DESC
-        LIMIT 25
-        MATCH (wc)-[:POSTED]->(cast)
-        WITH wc, username, fid, fcCredScore, cast
-        ORDER BY cast.timestamp DESC
-        WITH wc, username, fid, fcCredScore, collect({text: cast.text, hash: cast.hash, timestamp: toString(cast.timestamp)})[0..3] as recentCasts
-        WITH collect({
-            username: username,
-            fid: fid,
-            fcCredScore: fcCredScore,
-            recentCasts: recentCasts
-        }) as promoters
-        RETURN {promoters: promoters} as data
-        """
-        
-        # Execute query with the miniapp_name parameter
-        results = execute_cypher(query, {"query": request.miniapp_name})
-        
-        # Process results
-        if not results or len(results) == 0:
-            raise HTTPException(status_code=404, detail="No key promoters found")
-        
-        # Extract the data from the Neo4j result
-        neo4j_data = results[0].get("data")
-        promoters_data = neo4j_data.get("promoters", [])
-        
-        # Return the data directly as a dictionary
-        return {"promoters": promoters_data}
+
+    miniapp_name = request.miniapp_name.strip()
+    if not miniapp_name:
+        raise HTTPException(status_code=400, detail="Miniapp name required")
+
+    # --------------- Collect casts -----------------
+    casts: List[Dict[str, Any]] = []
+
+    # Neynar search
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://api.neynar.com/v2/farcaster/cast/search",
+                params={"q": miniapp_name, "limit": 50},
+                headers={"accept": "application/json", "api_key": NEYNAR_API_KEY},
+            )
+        r.raise_for_status()
+        for c in r.json().get("casts", []):
+            author = c.get("author", {})
+            casts.append(
+                {
+                    "hash": c.get("hash"),
+                    "text": c.get("text", ""),
+                    "timestamp": c.get("timestamp"),
+                    "author_fid": author.get("fid"),
+                    "author_username": author.get("username"),
+                }
+            )
+        logger.info("Neynar returned %s casts", len(casts))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-    
+        logger.error("Neynar search failed: %s", e)
 
+    # Mongo search
+    for m in await search_mongo_casts(miniapp_name, limit=100):
+        ts = m.get("timestamp") or m.get("createdAt")
+        if isinstance(ts, datetime):
+            ts = ts.isoformat()
+        casts.append(
+            {
+                "hash": m.get("hash"),
+                "text": m.get("text", ""),
+                "timestamp": ts,
+                "author_fid": m.get("authorFid"),
+                "author_username": m.get("author"),
+            }
+        )
 
+    logger.info("Combined raw casts: %s", len(casts))
+
+    # --------------- De‑duplicate by hash -----------------
+    casts = {c["hash"]: c for c in casts if c.get("hash")}.values()
+
+    # --------------- Enrich authors with Neo4j fcCredScore -----------------
+    fids = sorted({int(c["author_fid"]) for c in casts if c.get("author_fid") is not None})
+    if not fids:
+        return {"promoters": []}
+
+    records = execute_cypher(
+        """
+        MATCH (wc:Warpcast:Account)
+        WHERE toInteger(wc.fid) IN $fids
+        RETURN wc.fid AS fid,
+               wc.username AS username,
+               wc.fcCredScore AS fcCredScore,
+               wc.bio AS bio
+        """,
+        {"fids": fids},
+    )
+    enrichment = {int(r["fid"]): dict(r) for r in records}
+    if not enrichment:
+        return {"promoters": []}
+
+    # --------------- Build promoter objects -----------------
+    promoters: List[Dict[str, Any]] = []
+    for c in casts:
+        fid = int(c.get("author_fid")) if c.get("author_fid") else None
+        if fid is None or fid not in enrichment:
+            continue
+
+        # ensure we only capture up to 3 recent casts per promoter
+        prom = next((p for p in promoters if p["fid"] == fid), None)
+        if prom is None:
+            prom = {
+                "username": enrichment[fid]["username"],
+                "fid": fid,
+                "fcCredScore": enrichment[fid].get("fcCredScore") or 0,
+                "bio": enrichment[fid].get("bio") or "",
+                "recentCasts": [],
+            }
+            promoters.append(prom)
+
+        if len(prom["recentCasts"]) < 3:
+            prom["recentCasts"].append(
+                {
+                    "text": c["text"],
+                    "hash": c["hash"],
+                    "timestamp": c["timestamp"],
+                }
+            )
+
+    # sort and limit
+    promoters.sort(key=lambda x: x["fcCredScore"], reverse=True)
+    return {"promoters": promoters[:25]}
 
 @app.post(
     "/token-believer-score",
