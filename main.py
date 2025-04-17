@@ -72,6 +72,7 @@ NEO4J_URI = os.getenv("NEO4J_URI")
 NEO4J_USERNAME = os.getenv("NEO4J_USERNAME")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 NEYNAR_API_KEY = os.getenv("NEYNAR_API_KEY")
+
 NEO4J_DATABASE = None
 
 # Global Neo4j driver variable
