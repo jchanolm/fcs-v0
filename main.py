@@ -74,27 +74,57 @@ NEO4J_PASSWORD = os.getenv("NEO4J_PROD_PASSWORD")
 NEYNAR_API_KEY = os.getenv("NEYNAR_API_KEY")
 NEO4J_DATABASE = None
 
-# Initialize Neo4j driver
-try:
-    logger.info(f"Connecting to Neo4j with URI: {NEO4J_URI}")
-    logger.info(f"Username: {NEO4J_USERNAME}")
-    logger.info(f"Password: {'*' * len(NEO4J_PASSWORD) if NEO4J_PASSWORD else 'None'}")
+# Global Neo4j driver variable
+neo4j_driver = None
+
+def init_neo4j():
+    """Initialize Neo4j driver connection."""
+    global neo4j_driver
     
-    neo4j_driver = GraphDatabase.driver(
-        NEO4J_URI, 
-        auth=(NEO4J_USERNAME, NEO4J_PASSWORD)
-    )
+    try:
+        logger.info(f"Connecting to Neo4j with URI: {NEO4J_URI}")
+        logger.info(f"Username: {NEO4J_USERNAME}")
+        logger.info(f"Password: {'*' * len(NEO4J_PASSWORD) if NEO4J_PASSWORD else 'None'}")
+        
+        neo4j_driver = GraphDatabase.driver(
+            NEO4J_URI, 
+            auth=(NEO4J_USERNAME, NEO4J_PASSWORD)
+        )
+        
+        # Test the connection right away
+        with neo4j_driver.session() as session:
+            result = session.run("RETURN 1 as test")
+            for record in result:
+                logger.info(f"Neo4j connection test successful: {record['test']}")
+        
+        return True
+    except Exception as e:
+        logger.error(f"Neo4j connection error: {str(e)}")
+        # Set neo4j_driver to None to indicate it's not available
+        neo4j_driver = None
+        logger.warning("Neo4j driver is not available - API will run in limited mode")
+        return False
+
+# Call the init function
+init_neo4j()
+
+def execute_cypher(query, params=None):
+    """Execute a Cypher query in Neo4j"""
+    global neo4j_driver  # Explicitly use the global variable
     
-    # Test the connection right away
-    with neo4j_driver.session() as session:
-        result = session.run("RETURN 1 as test")
-        for record in result:
-            logger.info(f"Neo4j connection test successful: {record['test']}")
-            
-except Exception as e:
-    logger.error(f"Neo4j connection error: {str(e)}")
-    # Don't raise here, just log the error
-    
+    if neo4j_driver is None:
+        logger.error("Neo4j driver is not initialized - cannot execute query")
+        return []  # Return empty results instead of raising exception
+        
+    try:
+        # Using None for database parameter will use the default database
+        with neo4j_driver.session(database=NEO4J_DATABASE) as session:
+            result = session.run(query, params)
+            return list(result)
+    except Exception as e:
+        logger.error(f"Neo4j query execution error: {str(e)}")
+        return []  # Return empty results on error
+
 async def search_casts(query: str, limit: int = 100) -> List[Dict[str, Any]]:
     """
     Search for casts using MongoDB Atlas Search
@@ -196,12 +226,6 @@ async def get_casts_by_hashes(hashes: List[str]) -> List[Dict[str, Any]]:
 # Initialize FastAPI
 app = FastAPI(title="Token API", description="API for querying token data from Neo4j")
 
-def execute_cypher(query, params=None):
-    """Execute a Cypher query in Neo4j"""
-    # Using None for database parameter will use the default database
-    with neo4j_driver.session(database=NEO4J_DATABASE) as session:
-        result = session.run(query, params)
-        return list(result)
 
 # Request models
 class TokensRequest(BaseModel):
@@ -548,189 +572,57 @@ async def retrieve_token_believer_scores(request: TokensRequest) -> Dict[str, An
         raise HTTPException(status_code=401, detail="Invalid API key")
         
     try:
-        # Advanced query that calculates normalized believer scores with market cap adjustments
-        query = """
-        // First, find necessary statistics across all tokens
-        MATCH (token:Token)
-        WITH token, token.marketCap AS marketCap
-        // Calculate believer score without market cap factor first
-        MATCH (wallet:Wallet)-[r:HOLDS]->(token:Token)
-        WITH token, marketCap, count(wallet) AS num_wallets, collect(wallet) AS wallets
-        // Count wallets connected to Warpcast
-        MATCH (w:Wallet)-[r:HOLDS]->(token)
-        MATCH (w)-[:ACCOUNT*1..5]-(wc:Warpcast:Account)
-        WITH token, marketCap, num_wallets, count(DISTINCT w) AS warpcast_wallets
-        // Calculate percentage of wallets connected to Warpcast
-        WITH token, marketCap, num_wallets, warpcast_wallets,
-             CASE 
-                  WHEN num_wallets = 0 THEN 0.0
-                  ELSE (toFloat(warpcast_wallets) * 100.0 / num_wallets)
-             END AS warpcast_percentage
-
-        // Recalculate full believer score
-        MATCH (wallet:Wallet)-[r:HOLDS]->(token)
-        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, wallet, r.balance AS balance
-        OPTIONAL MATCH path = (wallet)-[:ACCOUNT*1..5]-(wc:Warpcast)
-        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, wc, wallet, balance
-        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage,
-             // Calculate total balance for this token
-             sum(balance) AS total_balance,
-             // For Gini calculation
-             collect({wallet: wallet, balance: balance}) AS wallet_data,
-             // Calculate social data
-             avg(wc.fcCredScore) AS avgSocialCredScore
-
-        // Calculate concentration score
-        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, total_balance, wallet_data, avgSocialCredScore
-        UNWIND wallet_data AS wallet_item
-        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, total_balance, wallet_item.balance/total_balance AS balance_fraction, avgSocialCredScore
-        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, total_balance, 
-             // Calculate concentration using HHI
-             sum(balance_fraction * balance_fraction) AS concentration_index,
-             avgSocialCredScore
-             
-        // Calculate believer score with concentration penalty
-        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, total_balance,
-             // Concentration penalty - convert HHI to diversity score (1 - HHI)
-             (1.0 - concentration_index) AS concentration_multiplier,
-             avgSocialCredScore
-
-        // Calculate standard believer score
-        MATCH (wallet:Wallet)-[r:HOLDS]->(token)
-        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, wallet, concentration_multiplier, avgSocialCredScore, total_balance
-        OPTIONAL MATCH path = (wallet)-[:ACCOUNT*1..5]-(wc:Warpcast)
-        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, wc, collect(DISTINCT wallet) AS wallet_group, concentration_multiplier, avgSocialCredScore, total_balance
-        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, wc, wallet_group, concentration_multiplier, avgSocialCredScore, total_balance,
-             CASE WHEN wc IS NULL THEN size(wallet_group)
-                  ELSE 1 + coalesce(wc.fcCredScore, 0)
-             END AS group_weight
-
-        // Calculate raw and diversity-adjusted believer scores
-        WITH token, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, 
-             sum(group_weight) AS raw_score,
-             concentration_multiplier, 
-             avgSocialCredScore,
-             total_balance
-
-        // Apply diversity adjustment
-        WITH token,
-             raw_score AS raw_believer_score,
-             raw_score * concentration_multiplier AS diversity_adjusted_score,
-             marketCap,
-             num_wallets,
-             warpcast_wallets,
-             warpcast_percentage,
-             avgSocialCredScore,
-             total_balance
-
-        // Calculate holder-to-market cap ratio
-        WITH token, 
-             raw_believer_score,
-             diversity_adjusted_score,
-             marketCap,
-             num_wallets,
-             warpcast_wallets,
-             warpcast_percentage,
-             avgSocialCredScore,
-             total_balance,
-             // Direct holder-to-market cap ratio
-             CASE 
-                  WHEN marketCap <= 0 THEN 999999999.0  // Prevent division by zero
-                  ELSE toFloat(num_wallets) / marketCap 
-             END AS holder_mcap_ratio
-
-        // Apply LESS AGGRESSIVE tiered market cap penalty
-        WITH token, 
-             raw_believer_score,
-             diversity_adjusted_score,
-             // Apply more forgiving tiered penalties
-             CASE 
-                  WHEN holder_mcap_ratio > 2.0 THEN diversity_adjusted_score * 0.05  // Still severe but less extreme (95% reduction)
-                  WHEN holder_mcap_ratio > 1.0 THEN diversity_adjusted_score * 0.25  // Less severe (75% reduction)
-                  WHEN holder_mcap_ratio > 0.5 THEN diversity_adjusted_score * 0.50  // Moderate (50% reduction)
-                  WHEN holder_mcap_ratio > 0.2 THEN diversity_adjusted_score * 0.75  // Mild (25% reduction)
-                  ELSE diversity_adjusted_score  // No penalty
-             END AS market_adjusted_score,
-             marketCap,
-             num_wallets,
-             warpcast_wallets,
-             warpcast_percentage,
-             avgSocialCredScore,
-             total_balance,
-             holder_mcap_ratio
-
-        // Get min/max values for normalization
-        WITH 
-             MIN(market_adjusted_score) AS min_score, 
-             MAX(market_adjusted_score) AS max_score,
-             COLLECT({
-                  token: token, 
-                  raw_score: raw_believer_score,
-                  diversity_score: diversity_adjusted_score,
-                  market_score: market_adjusted_score,
-                  ratio: holder_mcap_ratio,
-                  marketCap: marketCap,
-                  num_wallets: num_wallets,
-                  warpcast_wallets: warpcast_wallets,
-                  warpcast_percentage: warpcast_percentage,
-                  avg_social: avgSocialCredScore,
-                  total_balance: total_balance
-             }) AS all_token_data
-
-        // Normalize scores to 0-70
-        UNWIND all_token_data AS token_data
-        WITH token_data.token AS token, 
-             token_data.raw_score AS raw_believer_score,
-             token_data.diversity_score AS diversity_adjusted_score,
-             token_data.market_score AS market_adjusted_score,
-             token_data.ratio AS holder_mcap_ratio,
-             token_data.marketCap AS marketCap,
-             token_data.num_wallets AS num_wallets,
-             token_data.warpcast_wallets AS warpcast_wallets,
-             token_data.warpcast_percentage AS warpcast_percentage,
-             token_data.avg_social AS avgSocialCredScore,
-             token_data.total_balance AS total_balance,
-             min_score, max_score
-
-        WITH token, raw_believer_score, diversity_adjusted_score, market_adjusted_score, holder_mcap_ratio, marketCap, num_wallets, warpcast_wallets, warpcast_percentage, avgSocialCredScore, total_balance,
-             // Normalize to 0-70 scale
-             CASE 
-                  WHEN max_score = min_score THEN 40.0 // Default to middle value if all scores are equal
-                  ELSE 1.0 + 69.0 * (market_adjusted_score - min_score) / (max_score - min_score)
-             END AS normalized_believer_score
-        // Filter by token address if provided
-        WHERE CASE 
-            WHEN $token_address IS NOT NULL THEN toLower(token.address) = toLower($token_address)
-            ELSE true
-        END
-        RETURN
-            token.address AS address, 
-            token.name AS name,
-            token.symbol AS symbol,
-            tofloat(normalized_believer_score) AS believerScore,
-            tofloat(raw_believer_score) AS rawBelieverScore,
-            tofloat(diversity_adjusted_score) AS diversityAdjustedScore,
-            tofloat(market_adjusted_score) AS marketAdjustedScore,
-            tofloat(holder_mcap_ratio) AS holderToMarketCapRatio,
-            avg(tofloat(r.balance))
-            tofloat(marketCap) AS marketCap,
-            tofloat(num_wallets) AS walletCount,
-            tofloat(warpcast_wallets) AS warpcastWallets,
-            tofloat(warpcast_percentage) AS warpcastPercentage,
-            avgSocialCredScore,
-            tofloat(total_balance) AS totalSupply
-        ORDER BY believerScore DESC
-        """
-
+        # Prepare parameters
         params = {}
+        # Build the query based on whether a token address is provided
         if request.token_address:
+            # If token_address is provided, add filter to the query
+            query = """
+            MATCH (token:Token)
+            WHERE toLower(token.address) = toLower($token_address)
+            RETURN DISTINCT
+                token.address as address, 
+                token.name as name,
+                token.symbol as symbol,
+                token.believerScore as believerScore,
+                token.rawBelieverScore as rawBelieverScore,
+                token.diversityAdjustedScore as diversityAdjustedScore,
+                token.marketAdjustedScore as marketAdjustedScore,
+                token.holderToMarketCapRatio as holderToMarketCapRatio,
+                token.marketCap as marketCap,
+                token.walletCount as walletCount,
+                token.warpcastWallets as warpcastWallets,
+                token.warpcastPercentage as warpcastPercentage,
+                token.avgSocialCredScore as avgSocialCredScore,
+                token.totalSupply as totalSupply
+            """
             params["token_address"] = request.token_address.lower()
         else:
-            params["token_address"] = None
+            # If no token_address, return all tokens
+            query = """
+            MATCH (token:Token)
+            RETURN DISTINCT
+                token.address as address, 
+                token.name as name,
+                token.symbol as symbol,
+                token.believerScore as believerScore,
+                token.rawBelieverScore as rawBelieverScore,
+                token.diversityAdjustedScore as diversityAdjustedScore,
+                token.marketAdjustedScore as marketAdjustedScore,
+                token.holderToMarketCapRatio as holderToMarketCapRatio,
+                token.marketCap as marketCap,
+                token.walletCount as walletCount,
+                token.warpcastWallets as warpcastWallets,
+                token.warpcastPercentage as warpcastPercentage,
+                token.avgSocialCredScore as avgSocialCredScore,
+                token.totalSupply as totalSupply
+            ORDER BY token.believerScore DESC
+            """
         
         # Execute query
         logger.info(f"Querying for tokens with params: {params}")
         results = execute_cypher(query, params)
+        
         # Process results
         if not results:
             raise HTTPException(status_code=404, detail="No tokens found with the provided addresses")
@@ -1124,7 +1016,8 @@ async def fetch_weighted_casts(
 async def shutdown_event():
     """Close Neo4j driver connection when app shuts down"""
     logger.info("Shutting down application, closing Neo4j connection")
-    neo4j_driver.close()
+    if neo4j_driver is not None:
+        neo4j_driver.close()
 
 if __name__ == "__main__":
     import uvicorn
