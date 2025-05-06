@@ -3,10 +3,9 @@
 
 ## Provisional search queries
 
-### All time
+### SET MENTIONS
 
-```
-CALL db.index.fulltext.queryNodes("frames", "far-guesser.vercel.app") YIELD node, score
+CALL db.index.fulltext.queryNodes("frames", "'FarGuesser' OR 'https://far-guesser.vercel.app'") YIELD node, score
 WITH node
 MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
 WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "FarGuesser"})
@@ -29,4 +28,1055 @@ SET m.mentionsAllTime = casts,
     m.rawWeightedCasts = rawWeightedCasts,
     m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
 RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
-       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier```
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+
+;
+CALL db.index.fulltext.queryNodes("frames", "'Framedl by ds8' OR 'framedl.xyz'") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Framedl by ds8"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Framedl by ds8"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+
+;
+
+CALL db.index.fulltext.queryNodes("frames", "'Kismet Casa' OR 'kismetcasa.xyz'") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "tab"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Kismet Casa"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+
+;
+
+CALL db.index.fulltext.queryNodes("frames", "tab.castfriends.com OR 'castfriends'") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "tab"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "tab"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+
+;
+
+CALL db.index.fulltext.queryNodes("frames", "falsenine OR thefalsenine.xyz") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Falsenine"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Falsenine"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "'Flip-It' OR flip-it-clanker.vercel.app") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Flip-It"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Flip-It"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "'Amps' OR amps.fun") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Amps"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Amps"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "'$QR' OR qrcoin.fun") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "$QR"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "$QR"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "'onit' AND 'prediction markets' OR 'onit.fun'") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Onit - Prediction Markets"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Onit - Prediction Markets"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+
+;
+
+CALL db.index.fulltext.queryNodes("frames", "'onit' AND 'prediction markets' OR 'onit.fun'") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Onit - Prediction Markets"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Onit - Prediction Markets"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+;
+
+CALL db.index.fulltext.queryNodes("frames", "'fc footy' OR fc-footy.vercel.app") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "FC Footy App"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "FC Footy App"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "'hunt town' OR hunt.town") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Hunt Town, a Web3 builders guild"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Hunt Town, a Web3 builders guild"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "'Payflow | App' OR app.payflow.me") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Payflow | App"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Payflow | App"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+
+;
+
+CALL db.index.fulltext.queryNodes("frames", "'Contest | SassyHash 💅' OR https://gib-rewards.artlu.xyz") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Contest | SassyHash 💅"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Contest | SassyHash 💅"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "'earn on morpho' https://morpho.dtech.vision") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Earn on Morpho 🦋"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Earn on Morpho 🦋"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "calmer miniapp") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Calmer"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Calmer"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "Farcademy OR farcademy.metopia.xyz") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Farcademy"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Farcademy"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "yo.steer.fun") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Yo"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Yo"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+CALL db.index.fulltext.queryNodes("frames", "songbirdz.cc") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Songbirdz"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Songbirdz"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "'clank faces'") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Clank Faces | Mint your Clank Faces!"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Clank Faces | Mint your Clank Faces!"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+
+;
+
+CALL db.index.fulltext.queryNodes("frames", "minesweeper-frame-fox-tales") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Minesweeper"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Minesweeper"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "ballframe.vercel.app") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Ball frame"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Ball frame"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "'dixel' OR dixel.club") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Dixel Club | Mint Your Colors"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Dixel Club | Mint Your Colors"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier ;
+
+CALL db.index.fulltext.queryNodes("frames", "'ipod.fm") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "iPod.fm"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "iPod.fm"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+
+;
+
+CALL db.index.fulltext.queryNodes("frames", "'cast.money OR 'castmoney'") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "hot tokens"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "hot tokens"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+
+;
+
+CALL db.index.fulltext.queryNodes("frames", "'tap.computer'") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "tap"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "tap"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "'irl.steer.fun'") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "irl"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "irl"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+
+;
+
+CALL db.index.fulltext.queryNodes("frames", "dylansteck.com") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Dylan Steck"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Dylan Steck"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+
+    ;
+
+    CALL db.index.fulltext.queryNodes("frames", "urls.art") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "🪩 urls.art"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "🪩 urls.art"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "FarHack OR farhack.xyz") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "FarHack"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "FarHack"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "'Casterscan' OR casterscan.com") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Casterscan"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Casterscan"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "'Purple DAO' OR purple.construction") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Purple DAO"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Purple DAO"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "minesweeper-eight-kappa.vercel.app") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Minesweeper v1"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Minesweeper v1"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "flove") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Flove"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Flove"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+
+;
+
+CALL db.index.fulltext.queryNodes("frames", "chatter-app.dev") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Chatter"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Chatter"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "spin-wheel.anyvoid.xyz") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Spin the Wheel"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Spin the Wheel"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+
+;
+CALL db.index.fulltext.queryNodes("frames", "pixelcast.vercel.app OR 'Pixel Cast'") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Pixel Cast"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Pixel Cast"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "repeal.cash") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "repeal.cash"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "repeal.cash"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+;
+
+CALL db.index.fulltext.queryNodes("frames", "farma.vrypan") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Farma"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Farma"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+
+;
+CALL db.index.fulltext.queryNodes("frames", "idealite.xyz") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Idealite"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Idealite"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
+
+;
+CALL db.index.fulltext.queryNodes("frames", "farma.vrypan") YIELD node, score
+WITH node
+MATCH (node)-[r:POSTED]-(wc:Warpcast:Account)
+WHERE NOT (wc)-[:CREATED]->(:Miniapp {name: "Farma"})
+WITH count(distinct(node)) as casts, 
+     count(distinct(wc)) as uniqueCasters,
+     avg(wc.fcCredScore) as avgCredScore
+WITH casts, uniqueCasters, avgCredScore,
+     CASE 
+       WHEN casts > 0 AND uniqueCasters > 0 
+       THEN 1.0 * uniqueCasters / casts 
+       ELSE 1.0 
+     END as diversityFactor
+WITH casts, uniqueCasters, avgCredScore, diversityFactor,
+     casts * avgCredScore as rawWeightedCasts,
+     casts * avgCredScore * diversityFactor as penalizedWeightedCasts
+MATCH (m:Miniapp) WHERE m.name = "Farma"
+SET m.mentionsAllTime = casts,
+    m.uniqueCasters = uniqueCasters,
+    m.avgCredScore = avgCredScore,
+    m.rawWeightedCasts = rawWeightedCasts,
+    m.weightedCastsDiversityMultiplier = penalizedWeightedCasts
+RETURN m.name, m.mentionsAllTime, m.uniqueCasters, m.avgCredScore, 
+       m.rawWeightedCasts, m.weightedCastsDiversityMultiplier
