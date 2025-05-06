@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Path, Query
 from app.models.reputation_models import ReputationRequest, ReputationResponse
 from app.db.neo4j import execute_cypher, neo4j_driver
-from app.config import FARSTORE_PASS
+from app.config import REPUTATION_PASS
 from typing import Dict, Any
 
 # Set up logger for this module
@@ -38,16 +38,15 @@ async def get_user_reputation_by_get(
     - Includes detailed metrics on engagement from other accounts
     """
     # Validate API key
-    if api_key != FARSTORE_PASS:
+    if api_key != REPUTATION_PASS:
         raise HTTPException(status_code=401, detail="Invalid API key")
     
-    print(fid)
-    print(api_key)
+    logger.info(f"GET /user-reputation/{fid} - Processing reputation request")
     
     try:
-        # Execute query to get reputation data
+        # Execute query to get reputation data - FIXED to use the path parameter
         query = f"""
-        match (wc:WarpcastAccount {fid: 190000})
+        match (wc:WarpcastAccount {{fid: {fid}}})
         optional match (wc)<-[interact:REPLIED|RECASTED|LIKED|FOLLOWED]-(other:WarpcastAccount)
         where not wc.fid = other.fid 
         with wc.farconRank as rank, wc.farconScore as rawScore, 
@@ -75,15 +74,21 @@ async def get_user_reputation_by_get(
         }} as data
         """
         
+        logger.info(f"Executing Neo4j query for FID: {fid}")
+        
         # Execute the query - no parameters needed as FID is directly in the query
         results = execute_cypher(query)
         
+        logger.info(f"Query results: {results}")
+        
         # Process results
         if not results or len(results) == 0 or not results[0].get("data"):
+            logger.warning(f"No data found for FID: {fid}")
             raise HTTPException(status_code=404, detail=f"User not found with FID: {fid}")
         
         # Extract the data from the Neo4j result
         reputation_data = results[0].get("data")
+        logger.info(f"Returning reputation data for FID {fid}")
         
         # Return the response
         return {"data": reputation_data}
@@ -112,8 +117,10 @@ async def get_user_reputation_by_post(request: ReputationRequest) -> Dict[str, A
     - Includes detailed metrics on engagement from other accounts
     """
     # Validate API key
-    if request.api_key != FARSTORE_PASS:
+    if request.api_key != REPUTATION_PASS:
         raise HTTPException(status_code=401, detail="Invalid API key")
+    
+    logger.info(f"POST /user-reputation - Processing reputation request for FID: {request.fid}")
     
     try:
         # Execute query to get reputation data
@@ -146,15 +153,21 @@ async def get_user_reputation_by_post(request: ReputationRequest) -> Dict[str, A
         }} as data
         """
         
+        logger.info(f"Executing Neo4j query for FID: {request.fid}")
+        
         # Execute the query - no parameters needed as FID is directly in the query
         results = execute_cypher(query)
         
+        logger.info(f"Query results: {results}")
+        
         # Process results
         if not results or len(results) == 0 or not results[0].get("data"):
+            logger.warning(f"No data found for FID: {request.fid}")
             raise HTTPException(status_code=404, detail=f"User not found with FID: {request.fid}")
         
         # Extract the data from the Neo4j result
         reputation_data = results[0].get("data")
+        logger.info(f"Returning reputation data for FID {request.fid}")
         
         # Return the response
         return {"data": reputation_data}

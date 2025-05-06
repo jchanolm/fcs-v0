@@ -21,5 +21,6 @@ NEO4J_DATABASE = None  # Default database
 # API Keys
 CLANK_PASS = os.getenv("CLANK_PASS")
 FARSTORE_PASS = os.getenv("FARSTORE_PASS")
+REPUTATION_PASS = os.getenv("REPUTATION_PASS")
 FART_PASS = os.getenv("FART_PASS")
 NEYNAR_API_KEY = os.getenv("NEYNAR_API_KEY")
