@@ -13,7 +13,6 @@ httpcore
 httpx
 idna
 input-helper
-mongo-helper
 motor
 neo4j
 numpy
@@ -21,7 +20,6 @@ pandas
 psycopg2-binary
 pydantic
 pydantic_core
-pymongo
 python-dateutil
 python-dotenv
 pytz
