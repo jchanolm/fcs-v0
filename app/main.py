@@ -9,7 +9,6 @@ import os
 import builtins
 from fastapi import FastAPI
 from app.api.router import router
-from app.db.mongo import init_mongodb
 from app.db.neo4j import init_neo4j
 from app.db.postgres import init_postgres
 
@@ -49,12 +48,9 @@ async def startup_event():
     print("=== API STARTING UP ===")
     
     # Initialize database connections
-    mongo_success = init_mongodb()
     neo4j_success = init_neo4j()
     postgres_success = init_postgres()
     
-    if not mongo_success:
-        print("WARNING: MongoDB connection failed - API will run in limited mode")
     
     if not neo4j_success:
         print("WARNING: Neo4j connection failed - API will run in limited mode")
@@ -78,8 +74,8 @@ async def root():
     print("Root endpoint called")
     return {"message": "Quotient API is running"}
 
-# Include all routes
-app.include_router(router)
+# Include all routes with v1 prefix
+app.include_router(router, prefix="/v1")
 
 if __name__ == "__main__":
     import uvicorn
