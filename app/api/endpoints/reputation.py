@@ -5,7 +5,7 @@ Reputation-related API endpoints.
 import logging
 from fastapi import APIRouter, HTTPException, Path, Query
 from app.models.reputation_models import ReputationRequest, ReputationResponse
-from app.db.neo4j import execute_cypher, neo4j_driver
+from app.db.neo4j import execute_cypher
 from app.config import REPUTATION_PASS
 from typing import Dict, Any
 
