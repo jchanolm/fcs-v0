@@ -6,7 +6,7 @@ click
 dnspython
 dt-helper
 exceptiongroup
-fastapi=
+fastapi
 fs-helper
 h11
 httpcore
