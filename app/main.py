@@ -1,3 +1,4 @@
+# /app/main.py
 """
 Main application module for the API.
 This is the entry point that initializes the FastAPI app and includes all routes.
@@ -10,6 +11,7 @@ from fastapi import FastAPI
 from app.api.router import router
 from app.db.mongo import init_mongodb
 from app.db.neo4j import init_neo4j
+from app.db.postgres import init_postgres
 
 # Enhanced logging setup - direct to stdout with DEBUG level
 logging.basicConfig(
@@ -38,7 +40,7 @@ for name in logging.root.manager.loggerDict:
 # Initialize FastAPI
 app = FastAPI(
     title="Quotient API", 
-    description="API for querying token data, casts, and miniapps"
+    description="API for querying token data, casts, miniapps, and Farcaster users"
 )
 
 @app.on_event("startup")
@@ -49,20 +51,26 @@ async def startup_event():
     # Initialize database connections
     mongo_success = init_mongodb()
     neo4j_success = init_neo4j()
+    postgres_success = init_postgres()
     
     if not mongo_success:
         print("WARNING: MongoDB connection failed - API will run in limited mode")
     
     if not neo4j_success:
         print("WARNING: Neo4j connection failed - API will run in limited mode")
+        
+    if not postgres_success:
+        print("WARNING: PostgreSQL connection failed - Farcaster endpoints will be unavailable")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Close database connections when app shuts down"""
     from app.db.neo4j import close_neo4j_connection
+    from app.db.postgres import close_postgres_connection
     
     print("=== SHUTTING DOWN API ===")
     close_neo4j_connection()
+    close_postgres_connection()
 
 # Root endpoint
 @app.get("/")

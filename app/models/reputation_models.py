@@ -14,8 +14,10 @@ class EngagedAccountsData(BaseModel):
 
 class ReputationData(BaseModel):
     """Model for Farcaster reputation data."""
-    fcCredRank: int = Field(..., description="FarCon rank (Farcaster reputation rank)")
-    fcCredScore: float = Field(..., description="FarCon raw score (Farcaster reputation score)")
+    fcCredRank: int = Field(..., description="Farcaster Credibility Ranking")
+    fcCredScore: float = Field(..., description="Farcaster Credibility - Raw Score")
+    bridgeRank: int = Field(..., description="Ranked ability to bridge disconnected communities on Farcaster"),
+    bridgeScore: float = Field(..., description="Raw score for bridgeRank")
     engagedQualityAccounts: EngagedAccountsData = Field(..., description="Engagement metrics from other accounts")
 
 class ReputationResponse(BaseModel):
