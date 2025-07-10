@@ -1,3 +1,4 @@
+# /app/api/endpoints/reputation.py
 """
 Reputation-related API endpoints.
 """
@@ -16,84 +17,74 @@ router = APIRouter()
 
 @router.post(
     "/user-reputation",
-    summary="Get user reputation metrics (POST method)",
-    description="Retrieves detailed reputation metrics for a Farcaster user including their FCred score and engagement from quality accounts.",
+    summary="Get user reputation metrics for multiple users",
+    description="Retrieves quotient scores and ranking for up to 100 Farcaster users.",
     response_model=ReputationResponse,
     responses={
         200: {"description": "Successfully retrieved reputation data", "model": ReputationResponse},
         401: {"description": "Unauthorized - Invalid API key"},
-        404: {"description": "User not found with the provided FID"},
+        404: {"description": "No users found with the provided FIDs"},
         500: {"description": "Internal Server Error"}
     }
 )
 async def get_user_reputation_by_post(request: ReputationRequest) -> Dict[str, Any]:
     """
-    POST endpoint to retrieve reputation data for a specific Farcaster user.
+    POST endpoint to retrieve reputation data for multiple Farcaster users.
     
     - Requires valid API key for authentication
-    - Returns FCred score and rank
-    - Includes detailed metrics on engagement from other accounts
+    - Returns quotient score, raw score, and ranking for each user
+    - Accepts up to 100 FIDs per request
     """
     # Validate API key
     if request.api_key != REPUTATION_PASS:
         raise HTTPException(status_code=401, detail="Invalid API key")
     
-    logger.info(f"POST /user-reputation - Processing reputation request for FID: {request.fid}")
+    logger.info(f"POST /user-reputation - Processing reputation request for {len(request.fids)} FIDs")
     
     try:
-        # Execute query to get reputation data
+        # Create comma-separated list of FIDs for the query
+        fids_str = ', '.join(map(str, request.fids))
+        
+        # Execute query to get reputation data for multiple users
         query = f"""
-        match (wc:WarpcastAccount {{fid:{request.fid}}})
-        optional match (wc)<-[interact:REPLIED|RECASTED|LIKED|FOLLOWED]-(other:WarpcastAccount)
-        where not wc.fid = other.fid 
-        with wc.farconRank as rank, wc.farconScore as rawScore, tofloat(wc.btwnLeaderboard) as bridgeScore, 
-             tointeger(wc.btwnRank) as bridgeRank,
-             other,
-             case when type(interact) = 'REPLIED' then 1 else 0 end as isReply,
-             case when type(interact) = 'RECASTED' then 1 else 0 end as isRecast,
-             case when type(interact) = 'LIKED' then 1 else 0 end as isLike,
-             case when type(interact) = 'FOLLOWED' then 1 else 0 end as isFollow
-        with rank, rawScore,
-             sum(isReply) as replyCount,
-             sum(isRecast) as recastCount,
-             sum(isLike) as likeCount,
-             sum(isFollow) as followCount,
-             count(distinct(other)) as totalDistinctAccounts,
-             bridgeRank, 
-             bridgeScore
-        return {{
-          fcCredRank: tointeger(rank), 
-          fcCredScore: tofloat(rawScore), 
-          bridgeScore: tofloat(bridgeScore),
-          bridgeRank: tointeger(bridgeRank),
-          engagedQualityAccounts: {{
-            total: tointeger(totalDistinctAccounts),
-            replied: tointeger(replyCount),
-            recasted: tointeger(recastCount),
-            liked: tointeger(likeCount),
-            followed: tointeger(followCount)
-          }}
+        MATCH (wc:WarpcastAccount)
+        WHERE wc.fid IN [{fids_str}]
+        RETURN {{
+          fid: wc.fid,
+          username: wc.username,
+          quotientScore: wc.earlySummerNorm,
+          quotientScoreRaw: wc.earlySummer,
+          quotientRank: wc.earlySummerRank,
+          quotientProfileUrl: "farcaster.quotient.social/user/" + wc.username
         }} as data
+        ORDER BY wc.earlySummerRank ASC
         """
         
-        logger.info(f"Executing Neo4j query for FID: {request.fid}")
+        logger.info(f"Executing Neo4j query for FIDs: {request.fids}")
         
-        # Execute the query - no parameters needed as FID is directly in the query
+        # Execute the query
         results = execute_cypher(query)
         
-        logger.info(f"Query results: {results}")
+        logger.info(f"Query results count: {len(results) if results else 0}")
         
         # Process results
-        if not results or len(results) == 0 or not results[0].get("data"):
-            logger.warning(f"No data found for FID: {request.fid}")
-            raise HTTPException(status_code=404, detail=f"User not found with FID: {request.fid}")
+        if not results:
+            logger.warning(f"No data found for FIDs: {request.fids}")
+            raise HTTPException(status_code=404, detail=f"No users found with the provided FIDs")
         
-        # Extract the data from the Neo4j result
-        reputation_data = results[0].get("data")
-        logger.info(f"Returning reputation data for FID {request.fid}")
+        # Extract the data from the Neo4j results
+        reputation_list = []
+        for result in results:
+            if result.get("data"):
+                reputation_list.append(result.get("data"))
+        
+        logger.info(f"Returning reputation data for {len(reputation_list)} users")
         
         # Return the response
-        return {"data": reputation_data}
+        return {
+            "data": reputation_list,
+            "count": len(reputation_list)
+        }
     except Exception as e:
         logger.error(f"Error retrieving reputation data: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")

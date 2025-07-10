@@ -1,30 +1,33 @@
+# /app/models/reputation_models.py
 """
 Pydantic models for reputation-related endpoints.
 """
-from pydantic import BaseModel, Field
-from typing import Dict
-
-class EngagedAccountsData(BaseModel):
-    """Model for engagement metrics from other accounts."""
-    total: int = Field(..., description="Total number of distinct accounts that engaged")
-    replied: int = Field(..., description="Number of accounts that replied")
-    recasted: int = Field(..., description="Number of accounts that recasted")
-    liked: int = Field(..., description="Number of accounts that liked")
-    followed: int = Field(..., description="Number of accounts that followed")
+from pydantic import BaseModel, Field, validator
+from typing import Dict, Optional, List
 
 class ReputationData(BaseModel):
     """Model for Farcaster reputation data."""
-    fcCredRank: int = Field(..., description="Farcaster Credibility Ranking")
-    fcCredScore: float = Field(..., description="Farcaster Credibility - Raw Score")
-    bridgeRank: int = Field(..., description="Ranked ability to bridge disconnected communities on Farcaster"),
-    bridgeScore: float = Field(..., description="Raw score for bridgeRank")
-    engagedQualityAccounts: EngagedAccountsData = Field(..., description="Engagement metrics from other accounts")
+    fid: int = Field(..., description="Farcaster user ID")
+    username: str = Field(..., description="Farcaster username")
+    quotientScore: Optional[float] = Field(None, description="Normalized quotient score - use for display to users. Account quality drops signifigantly beneath .5")
+    quotientScoreRaw: Optional[float] = Field(None, description="Raw quotient score - use for rewards multipliers.")
+    quotientRank: Optional[int] = Field(None, description="Account rank across Farcaster based on Quotient score.")
+    quotientProfileUrl: str = Field(..., description="Review reach, engagement, and influence insights for the user in the Quotient discovery portal.")
 
 class ReputationResponse(BaseModel):
     """Response model for reputation endpoint."""
-    data: ReputationData = Field(..., description="Reputation data for the requested FID")
+    data: List[ReputationData] = Field(..., description="List of reputation data for the requested FIDs")
+    count: int = Field(..., description="Number of users found")
 
 class ReputationRequest(BaseModel):
     """Request model for reputation endpoint."""
-    fid: int = Field(..., description="Farcaster ID (FID) to retrieve reputation for")
+    fids: List[int] = Field(..., description="List of Farcaster IDs (FIDs) to retrieve reputation for", max_items=100)
     api_key: str = Field(..., description="API key for authentication")
+    
+    @validator('fids')
+    def validate_fids_length(cls, v):
+        if len(v) == 0:
+            raise ValueError('At least one FID must be provided')
+        if len(v) > 100:
+            raise ValueError('Maximum 100 FIDs allowed per request')
+        return v
