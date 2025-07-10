@@ -3,9 +3,10 @@
 Farcaster users API endpoints.
 """
 import logging
-from fastapi import APIRouter, HTTPException, Path
-from app.models.farcaster_models import MutualsResponse, UserProfile
+from fastapi import APIRouter, HTTPException, Path, Query
+from app.models.farcaster_models import MutualsResponse, MutualsRequest, UserProfile
 from app.db.postgres import execute_postgres_query
+from app.config import REPUTATION_PASS
 from typing import Dict, Any, List
 
 # Set up logging
@@ -14,26 +15,30 @@ logger = logging.getLogger(__name__)
 # Create router
 router = APIRouter()
 
-@router.get(
-    "/farcaster-users/mutuals/{fid}",
+@router.post(
+    "/farcaster-users/mutuals",
     summary="Get mutual followers for a user",
-    description="Retrieves users who mutually follow each other with the specified FID.",
+    description="Retrieves users who mutually follow each other with the specified FID. API key required for authentication.",
     response_model=MutualsResponse,
     responses={
         200: {"description": "Successfully retrieved mutual followers", "model": MutualsResponse},
+        401: {"description": "Unauthorized - Invalid API key"},
         404: {"description": "No mutual followers found for the provided FID"},
         500: {"description": "Internal Server Error"}
     }
 )
-async def get_mutual_followers(
-    fid: int = Path(..., description="Farcaster ID (FID) to find mutual followers for")
-) -> Dict[str, Any]:
+async def get_mutual_followers(request: MutualsRequest) -> Dict[str, Any]:
     """
     Get mutual followers for a specific Farcaster user by FID.
     
     Returns users who both follow the specified FID and are followed back by them.
+    Requires valid API key for authentication.
     """
-    logger.info(f"GET /farcaster-users/mutuals/{fid} - Processing mutual followers request")
+    logger.info(f"POST /farcaster-users/mutuals - Processing mutual followers request for FID: {request.fid}")
+    
+    # Validate API key
+    if request.api_key != REPUTATION_PASS:
+        raise HTTPException(status_code=401, detail="Invalid API key")
     
     try:
         # Query to find mutual followers with profile information
@@ -49,10 +54,9 @@ async def get_mutual_followers(
         ORDER BY p.username
         """
         
-        params = {"fid": fid}
+        params = {"fid": request.fid}
         
-        logger.info(f"Executing query for mutual followers of FID: {fid}")
-        logger.info(f"Query parameters: {params}")
+        logger.info(f"Executing query for mutual followers of FID: {request.fid}")
         
         # Execute the query
         results = execute_postgres_query(query, params)
@@ -61,8 +65,8 @@ async def get_mutual_followers(
         
         # Process results
         if not results:
-            logger.warning(f"No mutual followers found for FID: {fid}")
-            raise HTTPException(status_code=404, detail=f"No mutual followers found for FID: {fid}")
+            logger.warning(f"No mutual followers found for FID: {request.fid}")
+            raise HTTPException(status_code=404, detail=f"No mutual followers found for FID: {request.fid}")
         
         # Convert results to UserProfile objects
         mutual_followers = []
@@ -74,11 +78,11 @@ async def get_mutual_followers(
             )
             mutual_followers.append(user_profile)
         
-        logger.info(f"Returning {len(mutual_followers)} mutual followers for FID {fid}")
+        logger.info(f"Returning {len(mutual_followers)} mutual followers for FID {request.fid}")
         
         # Return the response
         return {
-            "fid": fid,
+            "fid": request.fid,
             "mutual_followers": mutual_followers,
             "count": len(mutual_followers)
         }

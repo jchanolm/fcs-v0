@@ -11,6 +11,11 @@ class UserProfile(BaseModel):
     username: str = Field(..., description="Farcaster username")
     pfp_url: str = Field(..., description="Profile picture URL")
 
+class MutualsRequest(BaseModel):
+    """Request model for mutual followers endpoint."""
+    fid: int = Field(..., description="Farcaster ID (FID) to find mutual followers for")
+    api_key: str = Field(..., description="API key for authentication")
+
 class MutualsResponse(BaseModel):
     """Response model for mutual followers endpoint."""
     fid: int = Field(..., description="The FID that was queried for mutual followers")
