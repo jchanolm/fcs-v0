@@ -18,7 +18,7 @@ router = APIRouter()
 @router.post(
     "/user-reputation",
     summary="Get user reputation metrics for multiple users",
-    description="Retrieves quotient scores and ranking for up to 100 Farcaster users.",
+    description="Retrieves quotient scores and ranking for up to 1000 Farcaster users.",
     response_model=ReputationResponse,
     responses={
         200: {"description": "Successfully retrieved reputation data", "model": ReputationResponse},
@@ -33,7 +33,7 @@ async def get_user_reputation_by_post(request: ReputationRequest) -> Dict[str, A
     
     - Requires valid API key for authentication
     - Returns quotient score, raw score, and ranking for each user
-    - Accepts up to 100 FIDs per request
+    - Accepts up to 1000 FIDs per request
     """
     # Validate API key
     if request.api_key != REPUTATION_PASS:

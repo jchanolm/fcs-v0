@@ -21,13 +21,13 @@ class ReputationResponse(BaseModel):
 
 class ReputationRequest(BaseModel):
     """Request model for reputation endpoint."""
-    fids: List[int] = Field(..., description="List of Farcaster IDs (FIDs) to retrieve reputation for", max_items=100)
+    fids: List[int] = Field(..., description="List of Farcaster IDs (FIDs) to retrieve reputation for", max_items=1000)
     api_key: str = Field(..., description="API key for authentication")
     
     @validator('fids')
     def validate_fids_length(cls, v):
         if len(v) == 0:
             raise ValueError('At least one FID must be provided')
-        if len(v) > 100:
-            raise ValueError('Maximum 100 FIDs allowed per request')
+        if len(v) > 1000:
+            raise ValueError('Maximum 1000 FIDs allowed per request')
         return v
