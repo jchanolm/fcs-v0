@@ -67,20 +67,16 @@ async def get_user_reputation_by_post(request: ReputationRequest) -> Dict[str, A
         
         logger.info(f"Query results count: {len(results) if results else 0}")
         
-        # Process results
-        if not results:
-            logger.warning(f"No data found for FIDs: {request.fids}")
-            raise HTTPException(status_code=404, detail=f"No users found with the provided FIDs")
-        
-        # Extract the data from the Neo4j results
+        # Process results - always return what we found, even if empty
         reputation_list = []
-        for result in results:
-            if result.get("data"):
-                reputation_list.append(result.get("data"))
+        if results:
+            for result in results:
+                if result.get("data"):
+                    reputation_list.append(result.get("data"))
         
         logger.info(f"Returning reputation data for {len(reputation_list)} users")
         
-        # Return the response
+        # Return the response - always return 200, even if no results found
         return {
             "data": reputation_list,
             "count": len(reputation_list)
