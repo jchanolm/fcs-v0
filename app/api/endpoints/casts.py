@@ -9,7 +9,6 @@ from app.models.cast_models import (
     CastRequest, WeightedCastsResponseData
 )
 from app.db.neo4j import execute_cypher
-from app.db.mongo import search_mongo_casts
 from app.utils.helpers import clean_query_for_lucene, save_search_results_to_json
 from app.config import FART_PASS
 from typing import Dict, Any, List

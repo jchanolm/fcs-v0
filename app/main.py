@@ -47,16 +47,16 @@ async def startup_event():
     """Initialize database connections when app starts up"""
     print("=== API STARTING UP ===")
     
-    # Initialize database connections
+    # Neo4j (required for most endpoints)
     neo4j_success = init_neo4j()
+    print(f"Neo4j: {'✓' if neo4j_success else '✗'}")
+    
+    # PostgreSQL (only for some endpoints, don't let it block startup)
     postgres_success = init_postgres()
+    print(f"PostgreSQL: {'✓' if postgres_success else '✗'}")
     
     
-    if not neo4j_success:
-        print("WARNING: Neo4j connection failed - API will run in limited mode")
-        
-    if not postgres_success:
-        print("WARNING: PostgreSQL connection failed - Farcaster endpoints will be unavailable")
+    print("=== API READY ===")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -65,8 +65,14 @@ async def shutdown_event():
     from app.db.postgres import close_postgres_connection
     
     print("=== SHUTTING DOWN API ===")
-    close_neo4j_connection()
-    close_postgres_connection()
+    try:
+        close_neo4j_connection()
+    except:
+        pass
+    try:
+        close_postgres_connection()
+    except:
+        pass
 
 # Root endpoint
 @app.get("/")

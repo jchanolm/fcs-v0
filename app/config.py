@@ -9,10 +9,6 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv(override=True)
 
-# MongoDB settings
-MONGO_DB_URL = os.getenv("MONGO_DB_URL")
-MONGO_DB_NAME = "quotient"
-
 # Neo4j settings
 NEO4J_URI = os.getenv("NEO4J_URI")
 NEO4J_USERNAME = os.getenv("NEO4J_USERNAME")
