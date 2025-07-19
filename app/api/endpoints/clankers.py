@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.post(
-    "/holds-tokens",
+    "/holds-clankers",
     summary="Get tokens held by Farcaster users",
     description="Retrieves tokens held by a list of Farcaster users (FIDs) on a specific blockchain. Returns token details and holder information.",
     response_model=ClankersHoldsResponse,
