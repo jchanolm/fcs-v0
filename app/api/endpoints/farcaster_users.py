@@ -1,11 +1,11 @@
 # /app/api/endpoints/farcaster_users.py
 """
-Farcaster users API endpoints using Neo4j.
+Farcaster users API endpoints.
 """
 import logging
 from fastapi import APIRouter, HTTPException, Path, Query
 from app.models.farcaster_models import MutualsResponse, MutualsRequest, UserProfile
-from app.db.neo4j import execute_cypher
+from app.db.postgres import execute_postgres_query
 from app.config import REPUTATION_PASS
 from typing import Dict, Any, List
 
@@ -18,7 +18,7 @@ router = APIRouter()
 @router.post(
     "/farcaster-users/mutuals",
     summary="Get mutual followers for a user",
-    description="Retrieves users who mutually follow each other with the specified FID using Neo4j. API key required for authentication.",
+    description="Retrieves users who mutually follow each other with the specified FID. API key required for authentication.",
     response_model=MutualsResponse,
     responses={
         200: {"description": "Successfully retrieved mutual followers", "model": MutualsResponse},
@@ -29,7 +29,7 @@ router = APIRouter()
 )
 async def get_mutual_followers(request: MutualsRequest) -> Dict[str, Any]:
     """
-    Get mutual followers for a specific Farcaster user by FID using Neo4j.
+    Get mutual followers for a specific Farcaster user by FID.
     
     Returns users who both follow the specified FID and are followed back by them.
     Requires valid API key for authentication.
@@ -41,20 +41,25 @@ async def get_mutual_followers(request: MutualsRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=401, detail="Invalid API key")
     
     try:
-        # Neo4j query to find mutual followers
+        # Query to find mutual followers with profile information
         query = """
-        MATCH (wc:WarpcastAccount {fid: tointeger($fid)})-[r:API_FOLLOWS]->(other:WarpcastAccount)
-        WHERE (other)-[:API_FOLLOWS]->(wc)
-        RETURN other.fid as fid, other.username as username, other.pfpUrl as pfp_url
-        ORDER BY other.username
+        SELECT DISTINCT
+            t1.target_fid as fid,
+            p.username,
+            p.pfp_url
+        FROM neynar.follows t1
+        INNER JOIN neynar.follows t2 ON (t2.fid = t1.target_fid AND t2.target_fid = :fid)
+        INNER JOIN neynar.profiles p ON p.fid = t1.target_fid
+        WHERE t1.fid = :fid
+        ORDER BY p.username
         """
         
         params = {"fid": request.fid}
         
-        logger.info(f"Executing Neo4j query for mutual followers of FID: {request.fid}")
+        logger.info(f"Executing query for mutual followers of FID: {request.fid}")
         
         # Execute the query
-        results = execute_cypher(query, params)
+        results = execute_postgres_query(query, params)
         
         logger.info(f"Query results count: {len(results) if results else 0}")
         
