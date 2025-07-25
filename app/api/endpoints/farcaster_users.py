@@ -35,52 +35,77 @@ async def get_mutual_followers(request: MutualsRequest) -> Dict[str, Any]:
     Requires valid API key for authentication.
     """
     logger.info(f"POST /farcaster-users/mutuals - Processing mutual followers request for FID: {request.fid}")
+    logger.info(f"FID type: {type(request.fid)}, value: {request.fid}")
     
     # Validate API key
     if request.api_key != REPUTATION_PASS:
         raise HTTPException(status_code=401, detail="Invalid API key")
     
     try:
+        # First, let's check if the user exists and has any follows
+        check_query = """
+        SELECT COUNT(*) as follow_count 
+        FROM neynar.follows 
+        WHERE fid = :fid OR target_fid = :fid
+        """
+        
+        check_results = execute_postgres_query(check_query, {"fid": int(request.fid)})
+        logger.info(f"Follow check results: {check_results}")
+        
         # Query to find mutual followers with profile information
+        # Using COALESCE to handle potential NULL values
         query = """
         SELECT DISTINCT
             t1.target_fid as fid,
-            p.username,
-            p.pfp_url
+            COALESCE(p.username, '') as username,
+            COALESCE(p.pfp_url, '') as pfp_url
         FROM neynar.follows t1
         INNER JOIN neynar.follows t2 ON (t2.fid = t1.target_fid AND t2.target_fid = :fid)
-        INNER JOIN neynar.profiles p ON p.fid = t1.target_fid
+        LEFT JOIN neynar.profiles p ON p.fid = t1.target_fid
         WHERE t1.fid = :fid
-        ORDER BY p.username
         """
         
-        params = {"fid": request.fid}
+        # Ensure FID is an integer
+        params = {"fid": int(request.fid)}
         
-        logger.info(f"Executing query for mutual followers of FID: {request.fid}")
+        logger.info(f"Executing PostgreSQL query for mutual followers of FID: {request.fid}")
+        logger.info(f"Query params: {params}")
         
         # Execute the query
         results = execute_postgres_query(query, params)
         
+        logger.info(f"Query results: {results}")
         logger.info(f"Query results count: {len(results) if results else 0}")
         
-        # Process results
+        # Let's also try a simpler query to debug
         if not results:
-            logger.warning(f"No mutual followers found for FID: {request.fid}")
-            raise HTTPException(status_code=404, detail=f"No mutual followers found for FID: {request.fid}")
+            debug_query = """
+            SELECT COUNT(*) as count FROM neynar.follows WHERE fid = :fid
+            """
+            debug_results = execute_postgres_query(debug_query, params)
+            logger.info(f"Debug - User {request.fid} follows count: {debug_results}")
+            
+            debug_query2 = """
+            SELECT COUNT(*) as count FROM neynar.follows WHERE target_fid = :fid
+            """
+            debug_results2 = execute_postgres_query(debug_query2, params)
+            logger.info(f"Debug - User {request.fid} followers count: {debug_results2}")
         
-        # Convert results to UserProfile objects
+        # Process results - don't throw 404 if no results
         mutual_followers = []
-        for record in results:
-            user_profile = UserProfile(
-                fid=record["fid"],
-                username=record["username"] or "",
-                pfp_url=record["pfp_url"] or ""
-            )
-            mutual_followers.append(user_profile)
+        if results:
+            for record in results:
+                # COALESCE handles everything in the query
+                user_profile = UserProfile(
+                    fid=record["fid"],
+                    username=record["username"],
+                    pfp_url=record["pfp_url"]
+                )
+                mutual_followers.append(user_profile)
         
         logger.info(f"Returning {len(mutual_followers)} mutual followers for FID {request.fid}")
         
-        # Return the response
+        # Return the response - always return 200, even if no mutual followers found
         return {
             "fid": request.fid,
             "mutual_followers": mutual_followers,
@@ -92,4 +117,7 @@ async def get_mutual_followers(request: MutualsRequest) -> Dict[str, Any]:
         raise
     except Exception as e:
         logger.error(f"Error retrieving mutual followers: {str(e)}")
+        logger.error(f"Exception type: {type(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
