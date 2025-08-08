@@ -158,49 +158,49 @@ async def check_user_eligibility(query_id: str, fid: int) -> CheckResponse:
     """Check eligibility for a specific user."""
     
     check_query = """
-    MATCH (allowlist:_Allowlist {uuid: $allowlistId})
-    WHERE NOT allowlist:_Draft
-    
-    MATCH (user:WarpcastAccount {fid: $fid})
-    
-    // Check reputation requirement
-    WITH allowlist, user, user.earlySummerNorm >= allowlist.fcCredCutoff as meetsReputation
-    
-    // Get all conditions with their targets
-    OPTIONAL MATCH (allowlist)-[cond:_ALLOWLIST_CONDITION]->(target)
-    
-    // Check each condition type
-    WITH allowlist, user, meetsReputation, 
-         collect({
-           type: cond.type,
-           targetName: CASE 
-             WHEN target:WarpcastAccount THEN target.username
-             WHEN target:Channel THEN target.channelId  
-             WHEN target:Token THEN target.address
-             WHEN target:_Context THEN 
-               [(target)<-[:_USAGE_CONTEXT]-(m:Miniapp) | m.name][0] + " - " + target._displayName
-             ELSE "Unknown"
-           END,
-           meets: CASE cond.type
-             WHEN 'farcaster-follower' THEN 
-               EXISTS { MATCH (user)-[:FOLLOWS]->(target) }
-             WHEN 'farcaster-channel' THEN 
-               EXISTS { MATCH (user)-[:MEMBER|FOLLOWS]->(target) }
-             WHEN 'token-holder' THEN 
-               EXISTS { MATCH (user)-[:ACCOUNT]->(wallet:Wallet)-[:HOLDS]->(target) }
-             WHEN 'miniapp-users' THEN
-               EXISTS { MATCH (user)-[:_HAS_CONTEXT]->(target) }
-             ELSE false
-           END
-         }) as conditions
-    
-    RETURN 
-      user.fid as fid,
-      user.earlySummerNorm as quotientScore,
-      meetsReputation,
-      conditions,
-      meetsReputation AND size([c IN conditions WHERE c.meets = false]) = 0 as overallEligible
-    """
+Here's the complete fixed query for your Python API:
+cypherMATCH (allowlist:_Allowlist {uuid: $allowlistId})
+WHERE NOT allowlist:_Draft
+
+MATCH (user:WarpcastAccount {fid: $fid})
+
+// Check reputation requirement
+WITH allowlist, user, user.earlySummerNorm >= allowlist.fcCredCutoff as meetsReputation
+
+// Get all conditions with their targets
+OPTIONAL MATCH (allowlist)-[cond:_ALLOWLIST_CONDITION]->(target)
+
+// Check each condition type and only create condition objects when cond exists
+WITH allowlist, user, meetsReputation, 
+     [condition IN collect(CASE WHEN cond IS NOT NULL THEN {
+       type: cond.type,
+       targetName: CASE 
+         WHEN target:WarpcastAccount THEN target.username
+         WHEN target:Channel THEN target.channelId  
+         WHEN target:Token THEN target.address
+         WHEN target:_Context THEN 
+           [(target)<-[:_USAGE_CONTEXT]-(m:Miniapp) | m.name][0] + " - " + target._displayName
+         ELSE "Unknown"
+       END,
+       meets: CASE cond.type
+         WHEN 'farcaster-follower' THEN 
+           EXISTS { MATCH (user)-[:FOLLOWS]->(target) }
+         WHEN 'farcaster-channel' THEN 
+           EXISTS { MATCH (user)-[:MEMBER|FOLLOWS]->(target) }
+         WHEN 'token-holder' THEN 
+           EXISTS { MATCH (user)-[:ACCOUNT]->(wallet:Wallet)-[:HOLDS]->(target) }
+         WHEN 'miniapp-users' THEN
+           EXISTS { MATCH (user)-[:_HAS_CONTEXT]->(target) }
+         ELSE false
+       END
+     } END) WHERE condition IS NOT NULL] as conditions
+
+RETURN 
+  user.fid as fid,
+  user.earlySummerNorm as quotientScore,
+  meetsReputation,
+  conditions,
+  meetsReputation AND size([c IN conditions WHERE c.meets = false]) = 0 as overallEligible    """
     
     result = execute_cypher(check_query, {"allowlistId": query_id, "fid": fid})
     
