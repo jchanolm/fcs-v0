@@ -43,7 +43,7 @@ async def get_holds_tokens(request: ClankersHoldsRequest) -> Dict[str, Any]:
     # Validate API key
     if request.api_key != REPUTATION_PASS:
         raise HTTPException(status_code=401, detail="Invalid API key")
-        logger.info(f"Processing holds-tokens request for {len(request.fids)} FIDs on chain: {request.chain}")
+        logger.info(f"Processing holds-clankers request for {len(request.fids)} FIDs on chain: {request.chain}")
     
     try:
         # Build the Neo4j query
