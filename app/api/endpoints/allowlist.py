@@ -98,6 +98,7 @@ async def get_all_eligible_users(query_id: str) -> list[UserEligibilityData]:
 
     // Find users who meet the reputation requirement  
     MATCH (user:WarpcastAccount)
+    OPTIONAL MATCH (user)-[rr:ACCOUNT {primary: True}]->(wallet:Wallet {protocol: 'ethereum'})
     WHERE user.earlySummerNorm >= allowlist.fcCredCutoff
 
     // Get all conditions for this allowlist
@@ -115,7 +116,8 @@ async def get_all_eligible_users(query_id: str) -> list[UserEligibilityData]:
     // Group by user and ensure they meet ALL conditions
     WITH user, 
          count(DISTINCT cond) as totalConditions,
-         count(DISTINCT rel) as metConditions
+         count(DISTINCT rel) as metConditions,
+         wallet.address as primaryEthAddress
 
     // Only return users who meet ALL conditions (or no conditions exist)
     WHERE totalConditions = 0 OR totalConditions = metConditions
@@ -125,7 +127,8 @@ async def get_all_eligible_users(query_id: str) -> list[UserEligibilityData]:
       user.username as username,
       user.pfpUrl as pfpUrl,
       user.earlySummerNorm as quotientScore,
-      user.earlySummerRank as quotientRank
+      user.earlySummerRank as quotientRank,
+      primaryEthAddress
     ORDER BY user.earlySummerNorm DESC
     """
     
@@ -136,6 +139,7 @@ async def get_all_eligible_users(query_id: str) -> list[UserEligibilityData]:
         fid = record.get('fid')
         quotient_score = record.get('quotientScore')
         quotient_rank = record.get('quotientRank')
+        primaryEthAddress = record.get('primaryEthAddress')
         
         # Handle Neo4j integer types
         fid_int = fid.toNumber() if hasattr(fid, 'toNumber') else int(fid)
@@ -148,6 +152,7 @@ async def get_all_eligible_users(query_id: str) -> list[UserEligibilityData]:
             pfp_url=record.get('pfpUrl'),
             quotient_score=score_float,
             quotient_rank=rank_int,
+            primary_eth_address=record.get('primaryEthAddress'),
             eligible=True  # All returned users are eligible
         ))
     
@@ -163,9 +168,10 @@ cypherMATCH (allowlist:_Allowlist {uuid: $allowlistId})
 WHERE NOT allowlist:_Draft
 
 MATCH (user:WarpcastAccount {fid: $fid})
+OPTIONAL MATCH (user)-[rr:ACCOUNT {primary: True}]->(wallet:Wallet {protocol: 'ethereum'})
 
 // Check reputation requirement
-WITH allowlist, user, user.earlySummerNorm >= allowlist.fcCredCutoff as meetsReputation
+WITH allowlist, user, user.earlySummerNorm >= allowlist.fcCredCutoff as meetsReputation, wallet.address as primaryEthAddress
 
 // Get all conditions with their targets
 OPTIONAL MATCH (allowlist)-[cond:_ALLOWLIST_CONDITION]->(target)
@@ -193,7 +199,8 @@ WITH allowlist, user, meetsReputation,
            EXISTS { MATCH (user)-[:_HAS_CONTEXT]->(target) }
          ELSE false
        END
-     } END) WHERE condition IS NOT NULL] as conditions
+     } END) WHERE condition IS NOT NULL] as conditions,
+     primaryEthAddress
 
 RETURN 
   user.fid as fid,

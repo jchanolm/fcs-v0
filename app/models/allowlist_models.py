@@ -27,6 +27,7 @@ class UserEligibilityData(BaseModel):
     """Model for user eligibility data."""
     fid: int = Field(..., description="Farcaster user ID")
     username: str = Field(..., description="Farcaster username")
+    primaryEthAddress: str = Field(..., description="Farcaster primary ETH address"),
     pfp_url: Optional[str] = Field(None, description="Profile picture URL")
     quotient_score: float = Field(..., description="User's quotient score")
     quotient_rank: Optional[int] = Field(None, description="User's quotient rank")
