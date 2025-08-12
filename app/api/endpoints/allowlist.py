@@ -24,7 +24,6 @@ router = APIRouter()
 )
 async def get_eligible_users(
     query_id: str,
-    api_key: str = Header(..., description="API key for authentication")
 ) -> UsersResponse:
     """Get all users eligible for the allowlist."""
     
@@ -126,7 +125,6 @@ async def get_eligible_users(
 async def check_user_eligibility(
     query_id: str,
     fid: int,
-    api_key: str = Header(..., description="API key for authentication")
 ) -> CheckResponse:
     """Check eligibility for a specific user."""
     
