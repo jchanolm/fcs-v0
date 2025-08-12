@@ -105,7 +105,7 @@ async def get_all_eligible_users(query_id: str) -> list[UserEligibilityData]:
     OPTIONAL MATCH (allowlist)-[cond:_ALLOWLIST_CONDITION]->(target)
 
     // Check if user has the required relationship to each target
-    OPTIONAL MATCH (user)-[rel]->(target)
+    OPTIONAL MATCH (user)-[rel]-(target)
     WHERE (
       (cond.type = 'farcaster-follower' AND type(rel) = 'FOLLOWS') OR
       (cond.type = 'farcaster-channel' AND type(rel) IN ['MEMBER', 'FOLLOWS']) OR
@@ -185,7 +185,7 @@ WITH allowlist, user, meetsReputation,
          WHEN target:Channel THEN target.channelId  
          WHEN target:Token THEN target.address
          WHEN target:_Context THEN 
-           [(target)<-[:_USAGE_CONTEXT]-(m:Miniapp) | m.name][0] + " - " + target._displayName
+           [(target)-[:_USAGE_CONTEXT]-(m:Miniapp) | m.name][0] + " - " + target._displayName
          ELSE "Unknown"
        END,
        meets: CASE cond.type
