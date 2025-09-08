@@ -53,6 +53,19 @@ async def get_user_reputation_by_post(request: ReputationRequest) -> Dict[str, A
           quotientScore: COALESCE(wc.earlySummerNorm, null),
           quotientScoreRaw: COALESCE(wc.earlySummer, null),
           quotientRank: COALESCE(wc.earlySummerRank, null),
+          quotientCreatorScoreNorm: COALESCE(wc.quotientCreatorScoreNorm, null),
+          quotientCreatorScoreRaw: COALESCE(wc.quotientCreatorScoreRaw, null),
+          quotientCreatorRank: COALESCE(wc.quotientCreatorRank, null),
+          quotientBuilderScoreNorm: COALESCE(wc.quotientBuilderScoreNorm, null),
+          quotientBuilderScoreRaw: COALESCE(wc.quotientBuilderScoreRaw, null),
+          quotientBuilderRank: COALESCE(wc.quotientBuilderRank, null),
+          quotientMiniappScoreNorm: COALESCE(wc.quotientMiniappScoreNorm, null),
+          quotientMiniappScoreRaw: COALESCE(wc.quotientMiniappScoreRaw, null),
+          quotientMiniappRank: COALESCE(wc.quotientMiniappRank, null),
+          quotientTraderScoreNorm: COALESCE(wc.quotientTraderScoreNorm, null),
+          quotientTraderScoreRaw: COALESCE(wc.quotientTraderScoreRaw, null),
+          quotientTraderRank: COALESCE(wc.quotientTraderRank, null)
+
           quotientProfileUrl: CASE 
             WHEN wc.username IS NOT NULL 
             THEN "farcaster.quotient.social/user/" + wc.username
