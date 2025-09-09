@@ -55,7 +55,7 @@ async def get_user_reputation_by_post(request: ReputationRequest) -> Dict[str, A
           quotientCreatorRank: COALESCE(wc.quotientCreatorRank, null),
           quotientBuilderRank: COALESCE(wc.quotientBuilderRank, null),
           quotientMiniappRank: COALESCE(wc.quotientMiniappRank, null),
-          quotientTraderRank: COALESCE(wc.quotientTraderRank, null)
+          quotientTraderRank: COALESCE(wc.quotientTraderRank, null),
 
           quotientProfileUrl: CASE 
             WHEN wc.username IS NOT NULL 
