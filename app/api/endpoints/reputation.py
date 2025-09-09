@@ -50,8 +50,7 @@ async def get_user_reputation_by_post(request: ReputationRequest) -> Dict[str, A
         RETURN {
           fid: wc.fid,
           username: COALESCE(wc.username, ''),
-          quotientScore: COALESCE(wc.earlySummerNorm, null),
-          quotientScoreRaw: COALESCE(wc.earlySummer, null),
+          quotientScore: ROUND(COALESCE(wc.earlySummerNorm, null), 3),
           quotientRank: COALESCE(wc.earlySummerRank, null),
           quotientCreatorRank: COALESCE(wc.quotientCreatorRank, null),
           quotientBuilderRank: COALESCE(wc.quotientBuilderRank, null),
