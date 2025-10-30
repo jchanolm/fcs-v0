@@ -49,7 +49,7 @@ def get_latest_run_timestamp(leaderboard_name: str) -> Any:
 @router.get(
     "/leaderboard/{leaderboard_name}",
     summary="Get full leaderboard",
-    description="Retrieve the complete leaderboard for the specified leaderboard name. Returns the latest snapshot based on run_timestamp.",
+    description="Retrieve the complete leaderboard for the specified leaderboard name. Returns the latest snapshot by default, or all historical snapshots if run_timestamp=all.",
     response_model=LeaderboardResponse,
     responses={
         200: {"description": "Successfully retrieved leaderboard data", "model": LeaderboardResponse},
@@ -60,54 +60,85 @@ def get_latest_run_timestamp(leaderboard_name: str) -> Any:
 )
 async def get_leaderboard(
     leaderboard_name: str = Path(..., description="Name of the leaderboard to retrieve"),
-    api_key: str = Query(..., description="API key for authentication")
+    api_key: str = Query(..., description="API key for authentication"),
+    run_timestamp: str = Query(None, description="Optional: 'all' to get all historical snapshots, omit for latest only")
 ) -> Dict[str, Any]:
     """
     GET endpoint to retrieve a full leaderboard.
 
     - Requires valid API key for authentication
-    - Returns all entries from the latest leaderboard snapshot
+    - Returns all entries from the latest leaderboard snapshot by default
+    - Use run_timestamp=all to retrieve all historical snapshots
     - Leaderboard name corresponds to table name in the leaderboards schema
     """
     # Validate API key
     if not validate_api_key(api_key):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-    logger.info(f"GET /leaderboard/{leaderboard_name} - Fetching full leaderboard")
+    logger.info(f"GET /leaderboard/{leaderboard_name} - Fetching full leaderboard (run_timestamp={run_timestamp})")
 
     try:
-        # Get the latest run_timestamp
-        max_timestamp = get_latest_run_timestamp(leaderboard_name)
+        # Determine if we're fetching all timestamps or just the latest
+        if run_timestamp and run_timestamp.lower() == "all":
+            # Query all entries across all timestamps
+            query = f"""
+            SELECT * FROM leaderboards.{leaderboard_name}
+            ORDER BY run_timestamp DESC
+            """
+            params = {}
+            results = execute_postgres_query(query, params)
 
-        if max_timestamp is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Leaderboard '{leaderboard_name}' not found or is empty"
-            )
+            if not results:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No data found for leaderboard '{leaderboard_name}'"
+                )
 
-        # Query all entries for the latest timestamp
-        query = f"""
-        SELECT * FROM leaderboards.{leaderboard_name}
-        WHERE run_timestamp = :max_timestamp
-        """
+            # Get unique timestamps for metadata
+            timestamps = sorted(list(set([r.get('run_timestamp') for r in results])), reverse=True)
 
-        params = {"max_timestamp": max_timestamp}
-        results = execute_postgres_query(query, params)
+            logger.info(f"Retrieved {len(results)} entries across {len(timestamps)} timestamps from leaderboard '{leaderboard_name}'")
 
-        if not results:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No data found for leaderboard '{leaderboard_name}'"
-            )
+            return {
+                "leaderboard_name": leaderboard_name,
+                "data": results,
+                "count": len(results),
+                "run_timestamp": None,
+                "run_timestamps": timestamps
+            }
+        else:
+            # Get the latest run_timestamp
+            max_timestamp = get_latest_run_timestamp(leaderboard_name)
 
-        logger.info(f"Retrieved {len(results)} entries from leaderboard '{leaderboard_name}'")
+            if max_timestamp is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Leaderboard '{leaderboard_name}' not found or is empty"
+                )
 
-        return {
-            "leaderboard_name": leaderboard_name,
-            "data": results,
-            "count": len(results),
-            "run_timestamp": max_timestamp
-        }
+            # Query all entries for the latest timestamp
+            query = f"""
+            SELECT * FROM leaderboards.{leaderboard_name}
+            WHERE run_timestamp = :max_timestamp
+            """
+
+            params = {"max_timestamp": max_timestamp}
+            results = execute_postgres_query(query, params)
+
+            if not results:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No data found for leaderboard '{leaderboard_name}'"
+                )
+
+            logger.info(f"Retrieved {len(results)} entries from leaderboard '{leaderboard_name}'")
+
+            return {
+                "leaderboard_name": leaderboard_name,
+                "data": results,
+                "count": len(results),
+                "run_timestamp": max_timestamp
+            }
 
     except HTTPException:
         raise
@@ -121,7 +152,7 @@ async def get_leaderboard(
 @router.get(
     "/leaderboard/{leaderboard_name}/user",
     summary="Get user's leaderboard entry",
-    description="Retrieve a specific user's entry from a leaderboard. Currently supports lookup by FID.",
+    description="Retrieve a specific user's entry from a leaderboard. Returns latest entry by default, or all historical entries if run_timestamp=all.",
     response_model=UserLeaderboardResponse,
     responses={
         200: {"description": "Successfully retrieved user leaderboard data", "model": UserLeaderboardResponse},
@@ -133,61 +164,99 @@ async def get_leaderboard(
 async def get_user_leaderboard(
     leaderboard_name: str = Path(..., description="Name of the leaderboard to retrieve"),
     api_key: str = Query(..., description="API key for authentication"),
-    fid: int = Query(..., description="Farcaster ID (FID) of the user to look up")
+    fid: int = Query(..., description="Farcaster ID (FID) of the user to look up"),
+    run_timestamp: str = Query(None, description="Optional: 'all' to get all historical entries, omit for latest only")
 ) -> Dict[str, Any]:
     """
     GET endpoint to retrieve a specific user's leaderboard entry.
 
     - Requires valid API key for authentication
     - Currently supports lookup by FID (Farcaster ID)
-    - Returns the user's entry from the latest leaderboard snapshot
+    - Returns the user's entry from the latest leaderboard snapshot by default
+    - Use run_timestamp=all to retrieve all historical entries for this user
     - Leaderboard name corresponds to table name in the leaderboards schema
     """
     # Validate API key
     if not validate_api_key(api_key):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-    logger.info(f"GET /leaderboard/{leaderboard_name}/user?fid={fid} - Fetching user entry")
+    logger.info(f"GET /leaderboard/{leaderboard_name}/user?fid={fid} - Fetching user entry (run_timestamp={run_timestamp})")
 
     try:
-        # Get the latest run_timestamp
-        max_timestamp = get_latest_run_timestamp(leaderboard_name)
+        # Determine if we're fetching all timestamps or just the latest
+        if run_timestamp and run_timestamp.lower() == "all":
+            # Query all entries for this user across all timestamps
+            query = f"""
+            SELECT * FROM leaderboards.{leaderboard_name}
+            WHERE fid = :fid
+            ORDER BY run_timestamp DESC
+            """
+            params = {"fid": fid}
+            results = execute_postgres_query(query, params)
 
-        if max_timestamp is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Leaderboard '{leaderboard_name}' not found or is empty"
-            )
+            if not results or len(results) == 0:
+                logger.info(f"User with FID {fid} not found in any snapshot of leaderboard '{leaderboard_name}'")
+                return {
+                    "leaderboard_name": leaderboard_name,
+                    "user_identifier": f"fid:{fid}",
+                    "data": None,
+                    "found": False,
+                    "run_timestamp": None,
+                    "run_timestamps": []
+                }
 
-        # Query the specific user's entry for the latest timestamp
-        query = f"""
-        SELECT * FROM leaderboards.{leaderboard_name}
-        WHERE run_timestamp = :max_timestamp
-        AND fid = :fid
-        """
+            # Get unique timestamps for this user
+            timestamps = sorted(list(set([r.get('run_timestamp') for r in results])), reverse=True)
 
-        params = {"max_timestamp": max_timestamp, "fid": fid}
-        results = execute_postgres_query(query, params)
+            logger.info(f"Retrieved {len(results)} entries across {len(timestamps)} timestamps for FID {fid} from leaderboard '{leaderboard_name}'")
 
-        if not results or len(results) == 0:
-            logger.info(f"User with FID {fid} not found in leaderboard '{leaderboard_name}'")
             return {
                 "leaderboard_name": leaderboard_name,
                 "user_identifier": f"fid:{fid}",
-                "data": None,
-                "found": False,
+                "data": results,
+                "found": True,
+                "run_timestamp": None,
+                "run_timestamps": timestamps
+            }
+        else:
+            # Get the latest run_timestamp
+            max_timestamp = get_latest_run_timestamp(leaderboard_name)
+
+            if max_timestamp is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Leaderboard '{leaderboard_name}' not found or is empty"
+                )
+
+            # Query the specific user's entry for the latest timestamp
+            query = f"""
+            SELECT * FROM leaderboards.{leaderboard_name}
+            WHERE run_timestamp = :max_timestamp
+            AND fid = :fid
+            """
+
+            params = {"max_timestamp": max_timestamp, "fid": fid}
+            results = execute_postgres_query(query, params)
+
+            if not results or len(results) == 0:
+                logger.info(f"User with FID {fid} not found in leaderboard '{leaderboard_name}'")
+                return {
+                    "leaderboard_name": leaderboard_name,
+                    "user_identifier": f"fid:{fid}",
+                    "data": None,
+                    "found": False,
+                    "run_timestamp": max_timestamp
+                }
+
+            logger.info(f"Retrieved entry for FID {fid} from leaderboard '{leaderboard_name}'")
+
+            return {
+                "leaderboard_name": leaderboard_name,
+                "user_identifier": f"fid:{fid}",
+                "data": results[0],
+                "found": True,
                 "run_timestamp": max_timestamp
             }
-
-        logger.info(f"Retrieved entry for FID {fid} from leaderboard '{leaderboard_name}'")
-
-        return {
-            "leaderboard_name": leaderboard_name,
-            "user_identifier": f"fid:{fid}",
-            "data": results[0],
-            "found": True,
-            "run_timestamp": max_timestamp
-        }
 
     except HTTPException:
         raise
