@@ -14,7 +14,7 @@ class LeaderboardEntry(BaseModel):
 class LeaderboardResponse(BaseModel):
     """Response model for full leaderboard endpoint."""
     leaderboard_name: str = Field(..., description="Name of the leaderboard")
-    data: List[Dict[str, Any]] = Field(..., description="List of leaderboard entries")
+    data: List[Dict[str, Any]] = Field(..., description="List of leaderboard entries, each enriched with 'addresses' field containing verified wallet addresses")
     count: int = Field(..., description="Number of entries in the leaderboard")
     run_timestamp: Optional[datetime] = Field(None, description="Timestamp of the leaderboard run (None when run_timestamp=all)")
     run_timestamps: Optional[List[datetime]] = Field(None, description="List of all run timestamps included (only present when run_timestamp=all)")
@@ -22,8 +22,8 @@ class LeaderboardResponse(BaseModel):
 class UserLeaderboardResponse(BaseModel):
     """Response model for individual user leaderboard lookup."""
     leaderboard_name: str = Field(..., description="Name of the leaderboard")
-    user_identifier: str = Field(..., description="User identifier used for lookup (e.g., fid)")
-    data: Optional[Any] = Field(None, description="User's leaderboard entry data (Dict for single entry, List[Dict] for all historical entries)")
+    user_identifier: str = Field(..., description="User identifier used for lookup (e.g., 'fid:123' or 'wallet:0x...')")
+    data: Optional[Any] = Field(None, description="User's leaderboard entry data (Dict for single entry, List[Dict] for all historical entries). Each entry includes 'addresses' field with verified wallet addresses.")
     found: bool = Field(..., description="Whether the user was found in the leaderboard")
     run_timestamp: Optional[datetime] = Field(None, description="Timestamp of the leaderboard run (None when run_timestamp=all or not found)")
     run_timestamps: Optional[List[datetime]] = Field(None, description="List of all run timestamps included (only present when run_timestamp=all)")

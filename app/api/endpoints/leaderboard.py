@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, Path
 from app.models.leaderboard_models import LeaderboardResponse, UserLeaderboardResponse
 from app.db.postgres import execute_postgres_query
 from app.config import TEST_LEADERBOARD_KEY
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
@@ -46,6 +46,83 @@ def get_latest_run_timestamp(leaderboard_name: str) -> Any:
             detail=f"Error querying leaderboard: {str(e)}"
         )
 
+def get_fid_from_wallet(wallet_address: str) -> Optional[int]:
+    """
+    Look up FID from wallet address using neynar.verifications.
+    
+    Args:
+        wallet_address: Ethereum wallet address
+        
+    Returns:
+        FID if found, None otherwise
+    """
+    query = """
+    SELECT fid 
+    FROM neynar.verifications 
+    WHERE LOWER(address) = LOWER(:wallet_address)
+    LIMIT 1
+    """
+    
+    try:
+        result = execute_postgres_query(query, {"wallet_address": wallet_address})
+        if result and len(result) > 0:
+            return result[0].get('fid')
+        return None
+    except Exception as e:
+        logger.error(f"Error looking up FID for wallet {wallet_address}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error querying verifications: {str(e)}"
+        )
+
+def get_verified_addresses(fid: int) -> List[str]:
+    """
+    Get all verified wallet addresses for a given FID.
+    
+    Args:
+        fid: Farcaster ID
+        
+    Returns:
+        List of verified wallet addresses
+    """
+    query = """
+    SELECT address 
+    FROM neynar.verifications 
+    WHERE fid = :fid
+    """
+    
+    try:
+        result = execute_postgres_query(query, {"fid": fid})
+        if result:
+            return [r.get('address') for r in result]
+        return []
+    except Exception as e:
+        logger.error(f"Error getting verified addresses for FID {fid}: {e}")
+        return []
+
+def enrich_with_addresses(data: Any) -> Any:
+    """
+    Enrich leaderboard data with verified wallet addresses.
+    
+    Args:
+        data: Single entry (Dict) or list of entries (List[Dict])
+        
+    Returns:
+        Enriched data with 'addresses' field added
+    """
+    if isinstance(data, dict):
+        fid = data.get('fid')
+        if fid:
+            data['addresses'] = get_verified_addresses(fid)
+        return data
+    elif isinstance(data, list):
+        for entry in data:
+            fid = entry.get('fid')
+            if fid:
+                entry['addresses'] = get_verified_addresses(fid)
+        return data
+    return data
+
 @router.get(
     "/leaderboard/{leaderboard_name}",
     summary="Get full leaderboard",
@@ -70,6 +147,7 @@ async def get_leaderboard(
     - Returns all entries from the latest leaderboard snapshot by default
     - Use run_timestamp=all to retrieve all historical snapshots
     - Leaderboard name corresponds to table name in the leaderboards schema
+    - Each entry includes 'addresses' field with all verified wallet addresses
     """
     # Validate API key
     if not validate_api_key(api_key):
@@ -83,7 +161,7 @@ async def get_leaderboard(
             # Query all entries across all timestamps
             query = f"""
             SELECT * FROM leaderboards.{leaderboard_name}
-            ORDER BY run_timestamp DESC
+            ORDER BY run_timestamp DESC, rank ASC
             """
             params = {}
             results = execute_postgres_query(query, params)
@@ -93,6 +171,9 @@ async def get_leaderboard(
                     status_code=404,
                     detail=f"No data found for leaderboard '{leaderboard_name}'"
                 )
+
+            # Enrich with verified addresses
+            results = enrich_with_addresses(results)
 
             # Get unique timestamps for metadata
             timestamps = sorted(list(set([r.get('run_timestamp') for r in results])), reverse=True)
@@ -120,6 +201,7 @@ async def get_leaderboard(
             query = f"""
             SELECT * FROM leaderboards.{leaderboard_name}
             WHERE run_timestamp = :max_timestamp
+            ORDER BY rank ASC
             """
 
             params = {"max_timestamp": max_timestamp}
@@ -130,6 +212,9 @@ async def get_leaderboard(
                     status_code=404,
                     detail=f"No data found for leaderboard '{leaderboard_name}'"
                 )
+
+            # Enrich with verified addresses
+            results = enrich_with_addresses(results)
 
             logger.info(f"Retrieved {len(results)} entries from leaderboard '{leaderboard_name}'")
 
@@ -152,7 +237,7 @@ async def get_leaderboard(
 @router.get(
     "/leaderboard/{leaderboard_name}/user",
     summary="Get user's leaderboard entry",
-    description="Retrieve a specific user's entry from a leaderboard. Returns latest entry by default, or all historical entries if run_timestamp=all.",
+    description="Retrieve a specific user's entry from a leaderboard. Can lookup by FID or wallet address. Returns latest entry by default, or all historical entries if run_timestamp=all.",
     response_model=UserLeaderboardResponse,
     responses={
         200: {"description": "Successfully retrieved user leaderboard data", "model": UserLeaderboardResponse},
@@ -164,23 +249,52 @@ async def get_leaderboard(
 async def get_user_leaderboard(
     leaderboard_name: str = Path(..., description="Name of the leaderboard to retrieve"),
     api_key: str = Query(..., description="API key for authentication"),
-    fid: int = Query(..., description="Farcaster ID (FID) of the user to look up"),
+    fid: Optional[int] = Query(None, description="Farcaster ID (FID) of the user to look up"),
+    wallet_address: Optional[str] = Query(None, description="Wallet address to look up (will resolve to FID)"),
     run_timestamp: str = Query(None, description="Optional: 'all' to get all historical entries, omit for latest only")
 ) -> Dict[str, Any]:
     """
     GET endpoint to retrieve a specific user's leaderboard entry.
 
     - Requires valid API key for authentication
-    - Currently supports lookup by FID (Farcaster ID)
+    - Supports lookup by FID or wallet address (must provide one)
     - Returns the user's entry from the latest leaderboard snapshot by default
     - Use run_timestamp=all to retrieve all historical entries for this user
     - Leaderboard name corresponds to table name in the leaderboards schema
+    - Each entry includes 'addresses' field with all verified wallet addresses
     """
     # Validate API key
     if not validate_api_key(api_key):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-    logger.info(f"GET /leaderboard/{leaderboard_name}/user?fid={fid} - Fetching user entry (run_timestamp={run_timestamp})")
+    # Validate that at least one identifier is provided
+    if not fid and not wallet_address:
+        raise HTTPException(
+            status_code=400,
+            detail="Must provide either 'fid' or 'wallet_address' parameter"
+        )
+
+    # If wallet_address provided, resolve to FID
+    user_identifier = ""
+    if wallet_address:
+        logger.info(f"Looking up FID for wallet address: {wallet_address}")
+        fid = get_fid_from_wallet(wallet_address)
+        if fid is None:
+            logger.info(f"Wallet address {wallet_address} not found in verifications")
+            return {
+                "leaderboard_name": leaderboard_name,
+                "user_identifier": f"wallet:{wallet_address}",
+                "data": None,
+                "found": False,
+                "run_timestamp": None,
+                "run_timestamps": []
+            }
+        user_identifier = f"wallet:{wallet_address} (fid:{fid})"
+        logger.info(f"Resolved wallet {wallet_address} to FID {fid}")
+    else:
+        user_identifier = f"fid:{fid}"
+
+    logger.info(f"GET /leaderboard/{leaderboard_name}/user?{user_identifier} - Fetching user entry (run_timestamp={run_timestamp})")
 
     try:
         # Determine if we're fetching all timestamps or just the latest
@@ -195,24 +309,27 @@ async def get_user_leaderboard(
             results = execute_postgres_query(query, params)
 
             if not results or len(results) == 0:
-                logger.info(f"User with FID {fid} not found in any snapshot of leaderboard '{leaderboard_name}'")
+                logger.info(f"User with {user_identifier} not found in any snapshot of leaderboard '{leaderboard_name}'")
                 return {
                     "leaderboard_name": leaderboard_name,
-                    "user_identifier": f"fid:{fid}",
+                    "user_identifier": user_identifier,
                     "data": None,
                     "found": False,
                     "run_timestamp": None,
                     "run_timestamps": []
                 }
 
+            # Enrich with verified addresses
+            results = enrich_with_addresses(results)
+
             # Get unique timestamps for this user
             timestamps = sorted(list(set([r.get('run_timestamp') for r in results])), reverse=True)
 
-            logger.info(f"Retrieved {len(results)} entries across {len(timestamps)} timestamps for FID {fid} from leaderboard '{leaderboard_name}'")
+            logger.info(f"Retrieved {len(results)} entries across {len(timestamps)} timestamps for {user_identifier} from leaderboard '{leaderboard_name}'")
 
             return {
                 "leaderboard_name": leaderboard_name,
-                "user_identifier": f"fid:{fid}",
+                "user_identifier": user_identifier,
                 "data": results,
                 "found": True,
                 "run_timestamp": None,
@@ -239,21 +356,24 @@ async def get_user_leaderboard(
             results = execute_postgres_query(query, params)
 
             if not results or len(results) == 0:
-                logger.info(f"User with FID {fid} not found in leaderboard '{leaderboard_name}'")
+                logger.info(f"User with {user_identifier} not found in leaderboard '{leaderboard_name}'")
                 return {
                     "leaderboard_name": leaderboard_name,
-                    "user_identifier": f"fid:{fid}",
+                    "user_identifier": user_identifier,
                     "data": None,
                     "found": False,
                     "run_timestamp": max_timestamp
                 }
 
-            logger.info(f"Retrieved entry for FID {fid} from leaderboard '{leaderboard_name}'")
+            # Enrich with verified addresses
+            result = enrich_with_addresses(results[0])
+
+            logger.info(f"Retrieved entry for {user_identifier} from leaderboard '{leaderboard_name}'")
 
             return {
                 "leaderboard_name": leaderboard_name,
-                "user_identifier": f"fid:{fid}",
-                "data": results[0],
+                "user_identifier": user_identifier,
+                "data": result,
                 "found": True,
                 "run_timestamp": max_timestamp
             }
