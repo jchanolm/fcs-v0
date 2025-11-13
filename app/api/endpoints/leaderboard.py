@@ -1,6 +1,6 @@
 # /app/api/endpoints/leaderboard.py
 """
-Leaderboard API endpoints.
+Leaderboard API endpoints - OPTIMIZED VERSION
 """
 import logging
 from fastapi import APIRouter, HTTPException, Query, Path
@@ -75,18 +75,61 @@ def get_fid_from_wallet(wallet_address: str) -> Optional[int]:
             detail=f"Error querying verifications: {str(e)}"
         )
 
+def get_verified_addresses_batch(fids: List[int]) -> Dict[int, List[str]]:
+    """
+    Get all verified wallet addresses for multiple FIDs in a single query.
+    
+    Args:
+        fids: List of Farcaster IDs
+        
+    Returns:
+        Dictionary mapping FID to list of verified wallet addresses (as hex strings)
+    """
+    if not fids:
+        return {}
+    
+    # Remove duplicates
+    unique_fids = list(set(fids))
+    
+    # Use encode(address, 'hex') to convert bytea to hex string
+    query = """
+    SELECT fid, '0x' || encode(address, 'hex') as address
+    FROM neynar.verifications 
+    WHERE fid = ANY(:fids)
+    """
+    
+    try:
+        result = execute_postgres_query(query, {"fids": unique_fids})
+        
+        # Group addresses by FID
+        fid_to_addresses = {}
+        for row in result:
+            fid = row.get('fid')
+            address = row.get('address')
+            if fid not in fid_to_addresses:
+                fid_to_addresses[fid] = []
+            fid_to_addresses[fid].append(address)
+        
+        logger.info(f"Fetched addresses for {len(unique_fids)} FIDs in single query")
+        return fid_to_addresses
+    except Exception as e:
+        logger.error(f"Error getting verified addresses for FIDs: {e}")
+        return {}
+
 def get_verified_addresses(fid: int) -> List[str]:
     """
-    Get all verified wallet addresses for a given FID.
+    Get all verified wallet addresses for a single FID.
+    Used for single user lookups.
     
     Args:
         fid: Farcaster ID
         
     Returns:
-        List of verified wallet addresses
+        List of verified wallet addresses (as hex strings)
     """
+    # Use encode(address, 'hex') to convert bytea to hex string
     query = """
-    SELECT address 
+    SELECT '0x' || encode(address, 'hex') as address
     FROM neynar.verifications 
     WHERE fid = :fid
     """
@@ -103,6 +146,7 @@ def get_verified_addresses(fid: int) -> List[str]:
 def enrich_with_addresses(data: Any) -> Any:
     """
     Enrich leaderboard data with verified wallet addresses.
+    OPTIMIZED: Uses batch query for lists to avoid N+1 problem.
     
     Args:
         data: Single entry (Dict) or list of entries (List[Dict])
@@ -111,15 +155,25 @@ def enrich_with_addresses(data: Any) -> Any:
         Enriched data with 'addresses' field added
     """
     if isinstance(data, dict):
+        # Single entry - use simple query
         fid = data.get('fid')
         if fid:
             data['addresses'] = get_verified_addresses(fid)
         return data
     elif isinstance(data, list):
-        for entry in data:
-            fid = entry.get('fid')
-            if fid:
-                entry['addresses'] = get_verified_addresses(fid)
+        # Multiple entries - use batch query to avoid N+1 problem
+        fids = [entry.get('fid') for entry in data if entry.get('fid')]
+        
+        if fids:
+            # Get all addresses in ONE query
+            fid_to_addresses = get_verified_addresses_batch(fids)
+            
+            # Assign addresses to each entry
+            for entry in data:
+                fid = entry.get('fid')
+                if fid:
+                    entry['addresses'] = fid_to_addresses.get(fid, [])
+        
         return data
     return data
 
@@ -172,7 +226,7 @@ async def get_leaderboard(
                     detail=f"No data found for leaderboard '{leaderboard_name}'"
                 )
 
-            # Enrich with verified addresses
+            # Enrich with verified addresses (NOW OPTIMIZED - single query!)
             results = enrich_with_addresses(results)
 
             # Get unique timestamps for metadata
@@ -213,7 +267,7 @@ async def get_leaderboard(
                     detail=f"No data found for leaderboard '{leaderboard_name}'"
                 )
 
-            # Enrich with verified addresses
+            # Enrich with verified addresses (NOW OPTIMIZED - single query!)
             results = enrich_with_addresses(results)
 
             logger.info(f"Retrieved {len(results)} entries from leaderboard '{leaderboard_name}'")
