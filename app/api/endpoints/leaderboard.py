@@ -117,11 +117,7 @@ async def get_leaderboard(
                 l.*,
                 s.quotient_score,
                 s.quotient_rank,
-                COALESCE(
-                    ARRAY_AGG(DISTINCT '0x' || encode(v.address, 'hex')) 
-                    FILTER (WHERE v.address IS NOT NULL),
-                    ARRAY[]::text[]
-                ) as addresses
+                a.addresses
             FROM leaderboards.{leaderboard_name} l
             LEFT JOIN LATERAL (
                 SELECT 
@@ -132,8 +128,14 @@ async def get_leaderboard(
                 ORDER BY run_timestamp DESC
                 LIMIT 1
             ) s ON true
-            LEFT JOIN neynar.verifications v ON v.fid = l.fid
-            GROUP BY l.fid, l.run_timestamp, l.rank, s.quotient_score, s.quotient_rank
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(
+                    ARRAY_AGG(DISTINCT '0x' || encode(address, 'hex')),
+                    ARRAY[]::text[]
+                ) as addresses
+                FROM neynar.verifications
+                WHERE fid = l.fid
+            ) a ON true
             ORDER BY l.run_timestamp DESC, l.rank ASC
             """
             params = {}
@@ -173,11 +175,7 @@ async def get_leaderboard(
                 l.*,
                 s.quotient_score,
                 s.quotient_rank,
-                COALESCE(
-                    ARRAY_AGG(DISTINCT '0x' || encode(v.address, 'hex')) 
-                    FILTER (WHERE v.address IS NOT NULL),
-                    ARRAY[]::text[]
-                ) as addresses
+                a.addresses
             FROM leaderboards.{leaderboard_name} l
             LEFT JOIN LATERAL (
                 SELECT 
@@ -188,9 +186,15 @@ async def get_leaderboard(
                 ORDER BY run_timestamp DESC
                 LIMIT 1
             ) s ON true
-            LEFT JOIN neynar.verifications v ON v.fid = l.fid
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(
+                    ARRAY_AGG(DISTINCT '0x' || encode(address, 'hex')),
+                    ARRAY[]::text[]
+                ) as addresses
+                FROM neynar.verifications
+                WHERE fid = l.fid
+            ) a ON true
             WHERE l.run_timestamp = :max_timestamp
-            GROUP BY l.fid, l.run_timestamp, l.rank, s.quotient_score, s.quotient_rank
             ORDER BY l.rank ASC
             """
 
@@ -293,11 +297,7 @@ async def get_user_leaderboard(
                 l.*,
                 s.quotient_score,
                 s.quotient_rank,
-                COALESCE(
-                    ARRAY_AGG(DISTINCT '0x' || encode(v.address, 'hex')) 
-                    FILTER (WHERE v.address IS NOT NULL),
-                    ARRAY[]::text[]
-                ) as addresses
+                a.addresses
             FROM leaderboards.{leaderboard_name} l
             LEFT JOIN LATERAL (
                 SELECT 
@@ -308,9 +308,15 @@ async def get_user_leaderboard(
                 ORDER BY run_timestamp DESC
                 LIMIT 1
             ) s ON true
-            LEFT JOIN neynar.verifications v ON v.fid = l.fid
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(
+                    ARRAY_AGG(DISTINCT '0x' || encode(address, 'hex')),
+                    ARRAY[]::text[]
+                ) as addresses
+                FROM neynar.verifications
+                WHERE fid = l.fid
+            ) a ON true
             WHERE l.fid = :fid
-            GROUP BY l.fid, l.run_timestamp, l.rank, s.quotient_score, s.quotient_rank
             ORDER BY l.run_timestamp DESC
             """
             params = {"fid": fid}
@@ -356,11 +362,7 @@ async def get_user_leaderboard(
                 l.*,
                 s.quotient_score,
                 s.quotient_rank,
-                COALESCE(
-                    ARRAY_AGG(DISTINCT '0x' || encode(v.address, 'hex')) 
-                    FILTER (WHERE v.address IS NOT NULL),
-                    ARRAY[]::text[]
-                ) as addresses
+                a.addresses
             FROM leaderboards.{leaderboard_name} l
             LEFT JOIN LATERAL (
                 SELECT 
@@ -371,10 +373,16 @@ async def get_user_leaderboard(
                 ORDER BY run_timestamp DESC
                 LIMIT 1
             ) s ON true
-            LEFT JOIN neynar.verifications v ON v.fid = l.fid
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(
+                    ARRAY_AGG(DISTINCT '0x' || encode(address, 'hex')),
+                    ARRAY[]::text[]
+                ) as addresses
+                FROM neynar.verifications
+                WHERE fid = l.fid
+            ) a ON true
             WHERE l.run_timestamp = :max_timestamp
             AND l.fid = :fid
-            GROUP BY l.fid, l.run_timestamp, l.rank, s.quotient_score, s.quotient_rank
             """
 
             params = {"max_timestamp": max_timestamp, "fid": fid}
