@@ -1,6 +1,6 @@
 # /app/api/endpoints/leaderboard.py
 """
-Leaderboard API endpoints - OPTIMIZED VERSION
+Leaderboard API endpoints - OPTIMIZED VERSION with FCS enrichment
 """
 import logging
 from fastapi import APIRouter, HTTPException, Query, Path
@@ -75,108 +75,6 @@ def get_fid_from_wallet(wallet_address: str) -> Optional[int]:
             detail=f"Error querying verifications: {str(e)}"
         )
 
-def get_verified_addresses_batch(fids: List[int]) -> Dict[int, List[str]]:
-    """
-    Get all verified wallet addresses for multiple FIDs in a single query.
-    
-    Args:
-        fids: List of Farcaster IDs
-        
-    Returns:
-        Dictionary mapping FID to list of verified wallet addresses (as hex strings)
-    """
-    if not fids:
-        return {}
-    
-    # Remove duplicates
-    unique_fids = list(set(fids))
-    
-    # Use encode(address, 'hex') to convert bytea to hex string
-    query = """
-    SELECT fid, '0x' || encode(address, 'hex') as address
-    FROM neynar.verifications 
-    WHERE fid = ANY(:fids)
-    """
-    
-    try:
-        result = execute_postgres_query(query, {"fids": unique_fids})
-        
-        # Group addresses by FID
-        fid_to_addresses = {}
-        for row in result:
-            fid = row.get('fid')
-            address = row.get('address')
-            if fid not in fid_to_addresses:
-                fid_to_addresses[fid] = []
-            fid_to_addresses[fid].append(address)
-        
-        logger.info(f"Fetched addresses for {len(unique_fids)} FIDs in single query")
-        return fid_to_addresses
-    except Exception as e:
-        logger.error(f"Error getting verified addresses for FIDs: {e}")
-        return {}
-
-def get_verified_addresses(fid: int) -> List[str]:
-    """
-    Get all verified wallet addresses for a single FID.
-    Used for single user lookups.
-    
-    Args:
-        fid: Farcaster ID
-        
-    Returns:
-        List of verified wallet addresses (as hex strings)
-    """
-    # Use encode(address, 'hex') to convert bytea to hex string
-    query = """
-    SELECT '0x' || encode(address, 'hex') as address
-    FROM neynar.verifications 
-    WHERE fid = :fid
-    """
-    
-    try:
-        result = execute_postgres_query(query, {"fid": fid})
-        if result:
-            return [r.get('address') for r in result]
-        return []
-    except Exception as e:
-        logger.error(f"Error getting verified addresses for FID {fid}: {e}")
-        return []
-
-def enrich_with_addresses(data: Any) -> Any:
-    """
-    Enrich leaderboard data with verified wallet addresses.
-    OPTIMIZED: Uses batch query for lists to avoid N+1 problem.
-    
-    Args:
-        data: Single entry (Dict) or list of entries (List[Dict])
-        
-    Returns:
-        Enriched data with 'addresses' field added
-    """
-    if isinstance(data, dict):
-        # Single entry - use simple query
-        fid = data.get('fid')
-        if fid:
-            data['addresses'] = get_verified_addresses(fid)
-        return data
-    elif isinstance(data, list):
-        # Multiple entries - use batch query to avoid N+1 problem
-        fids = [entry.get('fid') for entry in data if entry.get('fid')]
-        
-        if fids:
-            # Get all addresses in ONE query
-            fid_to_addresses = get_verified_addresses_batch(fids)
-            
-            # Assign addresses to each entry
-            for entry in data:
-                fid = entry.get('fid')
-                if fid:
-                    entry['addresses'] = fid_to_addresses.get(fid, [])
-        
-        return data
-    return data
-
 @router.get(
     "/leaderboard/{leaderboard_name}",
     summary="Get full leaderboard",
@@ -202,6 +100,7 @@ async def get_leaderboard(
     - Use run_timestamp=all to retrieve all historical snapshots
     - Leaderboard name corresponds to table name in the leaderboards schema
     - Each entry includes 'addresses' field with all verified wallet addresses
+    - Each entry includes 'quotient_score' and 'quotient_rank' from farcaster.fcs_scores
     """
     # Validate API key
     if not validate_api_key(api_key):
@@ -212,10 +111,30 @@ async def get_leaderboard(
     try:
         # Determine if we're fetching all timestamps or just the latest
         if run_timestamp and run_timestamp.lower() == "all":
-            # Query all entries across all timestamps
+            # Query all entries across all timestamps with FCS scores and addresses
             query = f"""
-            SELECT * FROM leaderboards.{leaderboard_name}
-            ORDER BY run_timestamp DESC, rank ASC
+            SELECT 
+                l.*,
+                s.quotient_score,
+                s.quotient_rank,
+                COALESCE(
+                    ARRAY_AGG(DISTINCT '0x' || encode(v.address, 'hex')) 
+                    FILTER (WHERE v.address IS NOT NULL),
+                    ARRAY[]::text[]
+                ) as addresses
+            FROM leaderboards.{leaderboard_name} l
+            LEFT JOIN LATERAL (
+                SELECT 
+                    fc_cred_score_norm as quotient_score,
+                    fc_cred_rank as quotient_rank
+                FROM farcaster.fcs_scores
+                WHERE fid = l.fid
+                ORDER BY run_timestamp DESC
+                LIMIT 1
+            ) s ON true
+            LEFT JOIN neynar.verifications v ON v.fid = l.fid
+            GROUP BY l.fid, l.run_timestamp, l.rank, s.quotient_score, s.quotient_rank
+            ORDER BY l.run_timestamp DESC, l.rank ASC
             """
             params = {}
             results = execute_postgres_query(query, params)
@@ -225,9 +144,6 @@ async def get_leaderboard(
                     status_code=404,
                     detail=f"No data found for leaderboard '{leaderboard_name}'"
                 )
-
-            # Enrich with verified addresses (NOW OPTIMIZED - single query!)
-            results = enrich_with_addresses(results)
 
             # Get unique timestamps for metadata
             timestamps = sorted(list(set([r.get('run_timestamp') for r in results])), reverse=True)
@@ -251,11 +167,31 @@ async def get_leaderboard(
                     detail=f"Leaderboard '{leaderboard_name}' not found or is empty"
                 )
 
-            # Query all entries for the latest timestamp
+            # Query all entries for the latest timestamp with FCS scores and addresses
             query = f"""
-            SELECT * FROM leaderboards.{leaderboard_name}
-            WHERE run_timestamp = :max_timestamp
-            ORDER BY rank ASC
+            SELECT 
+                l.*,
+                s.quotient_score,
+                s.quotient_rank,
+                COALESCE(
+                    ARRAY_AGG(DISTINCT '0x' || encode(v.address, 'hex')) 
+                    FILTER (WHERE v.address IS NOT NULL),
+                    ARRAY[]::text[]
+                ) as addresses
+            FROM leaderboards.{leaderboard_name} l
+            LEFT JOIN LATERAL (
+                SELECT 
+                    fc_cred_score_norm as quotient_score,
+                    fc_cred_rank as quotient_rank
+                FROM farcaster.fcs_scores
+                WHERE fid = l.fid
+                ORDER BY run_timestamp DESC
+                LIMIT 1
+            ) s ON true
+            LEFT JOIN neynar.verifications v ON v.fid = l.fid
+            WHERE l.run_timestamp = :max_timestamp
+            GROUP BY l.fid, l.run_timestamp, l.rank, s.quotient_score, s.quotient_rank
+            ORDER BY l.rank ASC
             """
 
             params = {"max_timestamp": max_timestamp}
@@ -266,9 +202,6 @@ async def get_leaderboard(
                     status_code=404,
                     detail=f"No data found for leaderboard '{leaderboard_name}'"
                 )
-
-            # Enrich with verified addresses (NOW OPTIMIZED - single query!)
-            results = enrich_with_addresses(results)
 
             logger.info(f"Retrieved {len(results)} entries from leaderboard '{leaderboard_name}'")
 
@@ -316,6 +249,7 @@ async def get_user_leaderboard(
     - Use run_timestamp=all to retrieve all historical entries for this user
     - Leaderboard name corresponds to table name in the leaderboards schema
     - Each entry includes 'addresses' field with all verified wallet addresses
+    - Each entry includes 'quotient_score' and 'quotient_rank' from farcaster.fcs_scores
     """
     # Validate API key
     if not validate_api_key(api_key):
@@ -353,11 +287,31 @@ async def get_user_leaderboard(
     try:
         # Determine if we're fetching all timestamps or just the latest
         if run_timestamp and run_timestamp.lower() == "all":
-            # Query all entries for this user across all timestamps
+            # Query all entries for this user across all timestamps with FCS scores and addresses
             query = f"""
-            SELECT * FROM leaderboards.{leaderboard_name}
-            WHERE fid = :fid
-            ORDER BY run_timestamp DESC
+            SELECT 
+                l.*,
+                s.quotient_score,
+                s.quotient_rank,
+                COALESCE(
+                    ARRAY_AGG(DISTINCT '0x' || encode(v.address, 'hex')) 
+                    FILTER (WHERE v.address IS NOT NULL),
+                    ARRAY[]::text[]
+                ) as addresses
+            FROM leaderboards.{leaderboard_name} l
+            LEFT JOIN LATERAL (
+                SELECT 
+                    fc_cred_score_norm as quotient_score,
+                    fc_cred_rank as quotient_rank
+                FROM farcaster.fcs_scores
+                WHERE fid = l.fid
+                ORDER BY run_timestamp DESC
+                LIMIT 1
+            ) s ON true
+            LEFT JOIN neynar.verifications v ON v.fid = l.fid
+            WHERE l.fid = :fid
+            GROUP BY l.fid, l.run_timestamp, l.rank, s.quotient_score, s.quotient_rank
+            ORDER BY l.run_timestamp DESC
             """
             params = {"fid": fid}
             results = execute_postgres_query(query, params)
@@ -372,9 +326,6 @@ async def get_user_leaderboard(
                     "run_timestamp": None,
                     "run_timestamps": []
                 }
-
-            # Enrich with verified addresses
-            results = enrich_with_addresses(results)
 
             # Get unique timestamps for this user
             timestamps = sorted(list(set([r.get('run_timestamp') for r in results])), reverse=True)
@@ -399,11 +350,31 @@ async def get_user_leaderboard(
                     detail=f"Leaderboard '{leaderboard_name}' not found or is empty"
                 )
 
-            # Query the specific user's entry for the latest timestamp
+            # Query the specific user's entry for the latest timestamp with FCS scores and addresses
             query = f"""
-            SELECT * FROM leaderboards.{leaderboard_name}
-            WHERE run_timestamp = :max_timestamp
-            AND fid = :fid
+            SELECT 
+                l.*,
+                s.quotient_score,
+                s.quotient_rank,
+                COALESCE(
+                    ARRAY_AGG(DISTINCT '0x' || encode(v.address, 'hex')) 
+                    FILTER (WHERE v.address IS NOT NULL),
+                    ARRAY[]::text[]
+                ) as addresses
+            FROM leaderboards.{leaderboard_name} l
+            LEFT JOIN LATERAL (
+                SELECT 
+                    fc_cred_score_norm as quotient_score,
+                    fc_cred_rank as quotient_rank
+                FROM farcaster.fcs_scores
+                WHERE fid = l.fid
+                ORDER BY run_timestamp DESC
+                LIMIT 1
+            ) s ON true
+            LEFT JOIN neynar.verifications v ON v.fid = l.fid
+            WHERE l.run_timestamp = :max_timestamp
+            AND l.fid = :fid
+            GROUP BY l.fid, l.run_timestamp, l.rank, s.quotient_score, s.quotient_rank
             """
 
             params = {"max_timestamp": max_timestamp, "fid": fid}
@@ -419,15 +390,12 @@ async def get_user_leaderboard(
                     "run_timestamp": max_timestamp
                 }
 
-            # Enrich with verified addresses
-            result = enrich_with_addresses(results[0])
-
             logger.info(f"Retrieved entry for {user_identifier} from leaderboard '{leaderboard_name}'")
 
             return {
                 "leaderboard_name": leaderboard_name,
                 "user_identifier": user_identifier,
-                "data": result,
+                "data": results[0],
                 "found": True,
                 "run_timestamp": max_timestamp
             }
