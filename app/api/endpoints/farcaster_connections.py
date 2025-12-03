@@ -169,7 +169,7 @@ LIMIT 25
 
 @router.post(
     "/farcaster-connections",
-    summary="Retrieve social connections)",
+    summary="Retrieve social connections",
     description="""
     Retrieve social connection data for a Farcaster user.
     """,
