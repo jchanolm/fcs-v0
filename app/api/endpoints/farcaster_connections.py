@@ -169,16 +169,9 @@ LIMIT 25
 
 @router.post(
     "/farcaster-connections",
-    summary="Get user connections (attention, influence, mutuals)",
+    summary="Retrieve social connections)",
     description="""
-    Retrieve connection data for a Farcaster user.
-    
-    Categories (comma-separated):
-    - **attention**: Users this FID engages with most (outgoing interactions)
-    - **influence**: Users who engage with this FID most (incoming interactions)
-    - **mutuals**: Users appearing in BOTH attention and influence, ranked by combined score
-    
-    Leave categories empty to get all three.
+    Retrieve social connection data for a Farcaster user.
     """,
     response_model=ConnectionsResponse,
     responses={
