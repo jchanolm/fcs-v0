@@ -74,7 +74,7 @@ WITH attention_data AS (
     WHERE reaction_type = 2
         AND fid = :fid
         AND target_fid != :fid
-        AND timestamp >= NOW() - INTERVAL '1 month'
+        AND timestamp >= NOW() - INTERVAL '2 months'
         AND deleted_at IS NULL
     UNION ALL
     -- Direct replies (weight = 5)
@@ -83,7 +83,7 @@ WITH attention_data AS (
     WHERE parent_fid IS NOT NULL
         AND fid = :fid
         AND parent_fid != :fid
-        AND timestamp >= NOW() - INTERVAL '1 month'
+        AND timestamp >= NOW() - INTERVAL '2 months'
         AND deleted_at IS NULL
     UNION ALL
     -- Thread replies (weight = 3)
@@ -93,7 +93,7 @@ WITH attention_data AS (
     WHERE c.root_parent_hash IS NOT NULL
         AND c.fid = :fid
         AND r.fid != :fid
-        AND c.timestamp >= NOW() - INTERVAL '1 month'
+        AND c.timestamp >= NOW() - INTERVAL '2 months'
         AND c.deleted_at IS NULL
     UNION ALL
     -- Mentions (weight = 5)
@@ -266,7 +266,7 @@ async def get_farcaster_connections(request: ConnectionsRequest) -> Dict[str, An
             for fid in mutual_fids:
                 att = attention_map[fid]
                 inf = influence_map[fid]
-                combined_score = att["score"] + inf["score"]
+                combined_score = att["score"] * 1.5 + inf["score"]
                 mutuals_list.append({
                     "fid": fid,
                     "username": att["username"] or inf["username"],
