@@ -10,9 +10,11 @@ class ReputationData(BaseModel):
     fid: int = Field(..., description="Farcaster user ID")
     username: str = Field(..., description="Farcaster username")
     quotientScore: Optional[float] = Field(None, description="Normalized quotient score - use for display to users. Account quality drops signifigantly beneath .5")
-    quotientScoreRaw: Optional[float] = Field(None, description="Raw quotient score - use for rewards multipliers.")
     quotientRank: Optional[int] = Field(None, description="Account rank across Farcaster based on Quotient score.")
-    quotientProfileUrl: str = Field(..., description="Review reach, engagement, and influence insights for the user in the Quotient discovery portal.")
+    contextLabels: Optional[List[str]] = Field(None, description="Context labels for the user (e.g., 'Top Trader', 'Top Builder/Dev')")
+    topTrader: Optional[bool] = Field(None, description="Whether user has Top Trader distinction")
+    topBuilder: Optional[bool] = Field(None, description="Whether user has Top Builder/Dev distinction")
+    topTokenEvangelist: Optional[bool] = Field(None, description="Whether user has Top Clanker Ecosystem Evangelist distinction")
 
 class ReputationResponse(BaseModel):
     """Response model for reputation endpoint."""

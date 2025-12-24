@@ -43,10 +43,11 @@ async def get_user_reputation_by_post(request: ReputationRequest) -> Dict[str, A
     
     try:
         # Execute query to get reputation data for multiple users
-        # Use parameterized query for safety and proper type handling
         query = """
         MATCH (wc:WarpcastAccount)
         WHERE wc.fid IN $fids
+        OPTIONAL MATCH (wc)-[:_HAS_CONTEXT]->(ctx)
+        WITH wc, collect(DISTINCT ctx) as contexts
         RETURN {
           fid: wc.fid,
           username: COALESCE(wc.username, ''),
@@ -56,12 +57,19 @@ async def get_user_reputation_by_post(request: ReputationRequest) -> Dict[str, A
           quotientBuilderRank: COALESCE(wc.quotientBuilderRank, null),
           quotientMiniappRank: COALESCE(wc.quotientMiniappRank, null),
           quotientTraderRank: COALESCE(wc.quotientTraderRank, null),
-
           quotientProfileUrl: CASE 
             WHEN wc.username IS NOT NULL 
             THEN "farcaster.quotient.social/user/" + wc.username
             ELSE ''
-          END
+          END,
+          topTrader: ANY(c IN contexts WHERE c:_TradingFeatured),
+          topBuilder: ANY(c IN contexts WHERE c:_TopMiniAppBuilder OR c:_FarcasterDevRewards OR c:_Builders),
+          topTokenEvangelist: ANY(c IN contexts WHERE c:_Evangelist AND c:_Clanker),
+          contextLabels: [x IN [
+            CASE WHEN ANY(c IN contexts WHERE c:_TradingFeatured) THEN 'Top Trader' ELSE null END,
+            CASE WHEN ANY(c IN contexts WHERE c:_TopMiniAppBuilder OR c:_FarcasterDevRewards OR c:_Builders) THEN 'Top Builder/Dev' ELSE null END,
+            CASE WHEN ANY(c IN contexts WHERE c:_Evangelist AND c:_Clanker) THEN 'Top Clanker Ecosystem Evangelist' ELSE null END
+          ] WHERE x IS NOT NULL]
         } as data
         ORDER BY wc.earlySummerRank ASC
         """
@@ -85,9 +93,8 @@ async def get_user_reputation_by_post(request: ReputationRequest) -> Dict[str, A
                     # Additional validation to ensure no None values for required string fields
                     if data.get("username") is None:
                         data["username"] = ""
-                    if data.get("quotientProfileUrl") is None:
-                        data["quotientProfileUrl"] = ""
-                    # Keep numeric fields as None if they're null - the model allows Optional
+                    if data.get("contextLabels") is None:
+                        data["contextLabels"] = []
                     reputation_list.append(data)
         
         logger.info(f"Returning reputation data for {len(reputation_list)} users")
