@@ -149,7 +149,7 @@ SELECT
     pfp_url,
     attention_score,
     influence_score,
-    (attention_score + influence_score) AS combined_score
+    (attention_score * 2.5 + influence_score) AS combined_score
 FROM scored
 ORDER BY combined_score DESC, username ASC
 """
