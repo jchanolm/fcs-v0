@@ -43,6 +43,8 @@ WITH mutuals AS (
     FROM neynar.follows t1
     JOIN neynar.follows t2 ON t2.fid = t1.target_fid AND t2.target_fid = :fid
     WHERE t1.fid = :fid AND t1.target_fid <> :fid
+    AND t1.deleted_at IS NULL 
+    AND t2.deleted_at IS NULL
 ),
 attention_likes AS (
     SELECT r.target_fid AS fid, COUNT(*) AS cnt
