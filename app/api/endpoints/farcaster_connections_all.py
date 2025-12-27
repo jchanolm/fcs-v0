@@ -50,7 +50,7 @@ attention_likes AS (
     SELECT r.target_fid AS fid, COUNT(*) AS cnt
     FROM neynar.reactions r
     WHERE r.reaction_type = 1 AND r.fid = :fid
-        AND r.timestamp >= CURRENT_DATE - INTERVAL '6 months'
+        AND r.timestamp >= CURRENT_DATE - INTERVAL '4 months'
         AND r.deleted_at IS NULL
         AND r.target_fid IN (SELECT fid FROM mutuals)
     GROUP BY r.target_fid
@@ -59,7 +59,7 @@ attention_recasts AS (
     SELECT r.target_fid AS fid, COUNT(*) AS cnt
     FROM neynar.reactions r
     WHERE r.reaction_type = 2 AND r.fid = :fid
-        AND r.timestamp >= CURRENT_DATE - INTERVAL '6 months'
+        AND r.timestamp >= CURRENT_DATE - INTERVAL '4 months'
         AND r.deleted_at IS NULL
         AND r.target_fid IN (SELECT fid FROM mutuals)
     GROUP BY r.target_fid
@@ -68,7 +68,7 @@ attention_replies AS (
     SELECT c.parent_fid AS fid, COUNT(*) AS cnt
     FROM neynar.casts c
     WHERE c.parent_fid IS NOT NULL AND c.fid = :fid
-        AND c.timestamp >= CURRENT_DATE - INTERVAL '6 months'
+        AND c.timestamp >= CURRENT_DATE - INTERVAL '4 months'
         AND c.deleted_at IS NULL
         AND c.parent_fid IN (SELECT fid FROM mutuals)
     GROUP BY c.parent_fid
@@ -78,7 +78,7 @@ attention_threads AS (
     FROM neynar.casts c2
     JOIN neynar.casts r2 ON c2.root_parent_hash = r2.hash
     WHERE c2.root_parent_hash IS NOT NULL AND c2.fid = :fid
-        AND c2.timestamp >= CURRENT_DATE - INTERVAL '6 months'
+        AND c2.timestamp >= CURRENT_DATE - INTERVAL '4 months'
         AND c2.deleted_at IS NULL
         AND r2.fid IN (SELECT fid FROM mutuals)
     GROUP BY r2.fid
@@ -94,7 +94,7 @@ influence_likes AS (
     SELECT r.fid AS fid, COUNT(*) AS cnt
     FROM neynar.reactions r
     WHERE r.reaction_type = 1 AND r.target_fid = :fid
-        AND r.timestamp >= CURRENT_DATE - INTERVAL '6 months'
+        AND r.timestamp >= CURRENT_DATE - INTERVAL '4 months'
         AND r.deleted_at IS NULL
         AND r.fid IN (SELECT fid FROM mutuals)
     GROUP BY r.fid
@@ -103,7 +103,7 @@ influence_recasts AS (
     SELECT r.fid AS fid, COUNT(*) AS cnt
     FROM neynar.reactions r
     WHERE r.reaction_type = 2 AND r.target_fid = :fid
-        AND r.timestamp >= CURRENT_DATE - INTERVAL '6 months'
+        AND r.timestamp >= CURRENT_DATE - INTERVAL '4 months'
         AND r.deleted_at IS NULL
         AND r.fid IN (SELECT fid FROM mutuals)
     GROUP BY r.fid
@@ -112,7 +112,7 @@ influence_replies AS (
     SELECT c.fid AS fid, COUNT(*) AS cnt
     FROM neynar.casts c
     WHERE c.parent_fid = :fid
-        AND c.timestamp >= CURRENT_DATE - INTERVAL '6 months'
+        AND c.timestamp >= CURRENT_DATE - INTERVAL '4 months'
         AND c.deleted_at IS NULL
         AND c.fid IN (SELECT fid FROM mutuals)
     GROUP BY c.fid
