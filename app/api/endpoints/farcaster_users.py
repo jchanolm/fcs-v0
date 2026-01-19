@@ -4,7 +4,10 @@ Farcaster users API endpoints.
 """
 import logging
 from fastapi import APIRouter, HTTPException
-from app.models.farcaster_models import MutualsResponse, MutualsRequest, UserProfile
+from app.models.farcaster_models import (
+    MutualsResponse, MutualsRequest, UserProfile,
+    LinkedWalletsRequest, LinkedWalletsResponse
+)
 from app.db.postgres import execute_postgres_query
 from app.config import REPUTATION_PASS
 from typing import Dict, Any
@@ -102,121 +105,107 @@ async def get_mutual_followers(request: MutualsRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
-#         WITH mutuals AS (
-#   SELECT DISTINCT t1.target_fid AS fid
-#   FROM neynar.follows t1
-#   JOIN neynar.follows t2 ON t2.fid = t1.target_fid AND t2.target_fid = $1
-#   WHERE t1.fid = $1 AND t1.target_fid <> $1
-# ),
-# attention_likes AS (
-#   SELECT r.target_fid AS fid, COUNT(*) AS cnt
-#   FROM neynar.reactions r
-#   WHERE r.reaction_type = 1 AND r.fid = $1
-#     AND r.timestamp >= CURRENT_DATE - INTERVAL '6 months'
-#     AND r.deleted_at IS NULL
-#     AND r.target_fid IN (SELECT fid FROM mutuals)
-#   GROUP BY r.target_fid
-# ),
-# attention_recasts AS (
-#   SELECT r.target_fid AS fid, COUNT(*) AS cnt
-#   FROM neynar.reactions r
-#   WHERE r.reaction_type = 2 AND r.fid = $1
-#     AND r.timestamp >= CURRENT_DATE - INTERVAL '6 months'
-#     AND r.deleted_at IS NULL
-#     AND r.target_fid IN (SELECT fid FROM mutuals)
-#   GROUP BY r.target_fid
-# ),
-# attention_replies AS (
-#   SELECT c.parent_fid AS fid, COUNT(*) AS cnt
-#   FROM neynar.casts c
-#   WHERE c.parent_fid IS NOT NULL AND c.fid = $1
-#     AND c.timestamp >= CURRENT_DATE - INTERVAL '6 months'
-#     AND c.deleted_at IS NULL
-#     AND c.parent_fid IN (SELECT fid FROM mutuals)
-#   GROUP BY c.parent_fid
-# ),
-# attention_threads AS (
-#   SELECT r2.fid AS fid, COUNT(*) AS cnt
-#   FROM neynar.casts c2
-#   JOIN neynar.casts r2 ON c2.root_parent_hash = r2.hash
-#   WHERE c2.root_parent_hash IS NOT NULL AND c2.fid = $1
-#     AND c2.timestamp >= CURRENT_DATE - INTERVAL '6 months'
-#     AND c2.deleted_at IS NULL
-#     AND r2.fid IN (SELECT fid FROM mutuals)
-#   GROUP BY r2.fid
-# ),
-# attention_mentions AS (
-#   SELECT rm.mentioned_fid AS fid, COUNT(*) AS cnt
-#   FROM neynar.recent_mentions rm
-#   WHERE rm.source_fid = $1
-#     AND rm.mentioned_fid IN (SELECT fid FROM mutuals)
-#   GROUP BY rm.mentioned_fid
-# ),
-# influence_likes AS (
-#   SELECT r.fid AS fid, COUNT(*) AS cnt
-#   FROM neynar.reactions r
-#   WHERE r.reaction_type = 1 AND r.target_fid = $1
-#     AND r.timestamp >= CURRENT_DATE - INTERVAL '6 months'
-#     AND r.deleted_at IS NULL
-#     AND r.fid IN (SELECT fid FROM mutuals)
-#   GROUP BY r.fid
-# ),
-# influence_recasts AS (
-#   SELECT r.fid AS fid, COUNT(*) AS cnt
-#   FROM neynar.reactions r
-#   WHERE r.reaction_type = 2 AND r.target_fid = $1
-#     AND r.timestamp >= CURRENT_DATE - INTERVAL '6 months'
-#     AND r.deleted_at IS NULL
-#     AND r.fid IN (SELECT fid FROM mutuals)
-#   GROUP BY r.fid
-# ),
-# influence_replies AS (
-#   SELECT c.fid AS fid, COUNT(*) AS cnt
-#   FROM neynar.casts c
-#   WHERE c.parent_fid = $1
-#     AND c.timestamp >= CURRENT_DATE - INTERVAL '6 months'
-#     AND c.deleted_at IS NULL
-#     AND c.fid IN (SELECT fid FROM mutuals)
-#   GROUP BY c.fid
-# ),
-# influence_mentions AS (
-#   SELECT rm.source_fid AS fid, COUNT(*) AS cnt
-#   FROM neynar.recent_mentions rm
-#   WHERE rm.mentioned_fid = $1
-#     AND rm.source_fid IN (SELECT fid FROM mutuals)
-#   GROUP BY rm.source_fid
-# ),
-# scored AS (
-#   SELECT
-#     m.fid,
-#     COALESCE(p.username, '') AS username,
-#     COALESCE(p.pfp_url, '') AS pfp_url,
-#     (COALESCE(al.cnt, 0) * 1 + COALESCE(ar.cnt, 0) * 5 + COALESCE(arep.cnt, 0) * 5 + COALESCE(at.cnt, 0) * 3 + COALESCE(am.cnt, 0) * 5) AS attention_score,
-#     (COALESCE(al.cnt, 0) + COALESCE(ar.cnt, 0) + COALESCE(arep.cnt, 0) + COALESCE(at.cnt, 0) + COALESCE(am.cnt, 0)) AS attention_events,
-#     (COALESCE(il.cnt, 0) * 1 + COALESCE(ir.cnt, 0) * 5 + COALESCE(irep.cnt, 0) * 5 + COALESCE(im.cnt, 0) * 5) AS influence_score,
-#     (COALESCE(il.cnt, 0) + COALESCE(ir.cnt, 0) + COALESCE(irep.cnt, 0) + COALESCE(im.cnt, 0)) AS influence_events
-#   FROM mutuals m
-#   LEFT JOIN neynar.profiles p ON p.fid = m.fid
-#   LEFT JOIN attention_likes al ON al.fid = m.fid
-#   LEFT JOIN attention_recasts ar ON ar.fid = m.fid
-#   LEFT JOIN attention_replies arep ON arep.fid = m.fid
-#   LEFT JOIN attention_threads at ON at.fid = m.fid
-#   LEFT JOIN attention_mentions am ON am.fid = m.fid
-#   LEFT JOIN influence_likes il ON il.fid = m.fid
-#   LEFT JOIN influence_recasts ir ON ir.fid = m.fid
-#   LEFT JOIN influence_replies irep ON irep.fid = m.fid
-#   LEFT JOIN influence_mentions im ON im.fid = m.fid
-# )
-# SELECT
-#   fid,
-#   username,
-#   pfp_url,
-#   attention_score,
-#   influence_score,
-#   attention_events,
-#   influence_events,
-#   CASE WHEN MAX(attention_score) OVER () > 0 THEN attention_score::numeric / MAX(attention_score) OVER () ELSE 0 END AS attention_norm,
-#   CASE WHEN MAX(influence_score) OVER () > 0 THEN influence_score::numeric / MAX(influence_score) OVER () ELSE 0 END AS influence_norm,
-#   ROUND(0.4 * (CASE WHEN MAX(attention_score) OVER () > 0 THEN attention_score::numeric / MAX(attention_score) OVER () ELSE 0 END) + 0.6 * (CASE WHEN MAX(influence_score) OVER () > 0 THEN influence_score::numeric / MAX(influence_score) OVER () ELSE 0 END), 6) AS affinity_score
-# FROM scored
-# ORDER BY affinity_score DESC, username ASC
+@router.post(
+    "/farcaster-linked-wallets",
+    summary="Get all linked wallets for a wallet address",
+    description="Given an Ethereum wallet address, returns the Farcaster user (if any) and all their verified wallet addresses. API key required for authentication.",
+    response_model=LinkedWalletsResponse,
+    responses={
+        200: {"description": "Successfully retrieved linked wallets", "model": LinkedWalletsResponse},
+        401: {"description": "Unauthorized - Invalid API key"},
+        404: {"description": "No Farcaster account found for the provided wallet address"},
+        500: {"description": "Internal Server Error"}
+    }
+)
+async def get_linked_wallets(request: LinkedWalletsRequest) -> Dict[str, Any]:
+    """
+    Get all Farcaster-linked wallets for a given wallet address.
+    
+    Given an Ethereum wallet address, this endpoint:
+    1. Looks up the Farcaster ID (FID) associated with that wallet
+    2. Returns all verified wallet addresses linked to that Farcaster account
+    
+    - Requires valid API key for authentication
+    - Returns the FID, username, and all linked wallet addresses
+    - Wallet addresses are normalized to lowercase with 0x prefix
+    """
+    logger.info(f"=== LINKED WALLETS REQUEST START ===")
+    logger.info(f"Wallet address: {request.wallet_address}")
+    
+    # Validate API key
+    if request.api_key != REPUTATION_PASS:
+        logger.error("Invalid API key provided")
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    
+    # Normalize the input address
+    normalized_address = request.wallet_address.lower()
+    if not normalized_address.startswith("0x"):
+        normalized_address = "0x" + normalized_address
+    
+    try:
+        # Step 1: Look up the FID from the wallet address
+        fid_query = """
+        SELECT fid 
+        FROM neynar.verifications 
+        WHERE LOWER(CONCAT('0x', encode(address, 'hex'))) = LOWER(:wallet_address)
+        LIMIT 1
+        """
+        
+        fid_result = execute_postgres_query(fid_query, {"wallet_address": normalized_address})
+        
+        if not fid_result:
+            logger.info(f"No FID found for wallet address: {normalized_address}")
+            raise HTTPException(
+                status_code=404, 
+                detail=f"No Farcaster account found for wallet address: {normalized_address}"
+            )
+        
+        fid = fid_result[0]["fid"]
+        logger.info(f"Found FID {fid} for wallet {normalized_address}")
+        
+        # Step 2: Get username and all linked wallets for this FID
+        wallets_query = """
+        SELECT 
+            p.username,
+            COALESCE(
+                ARRAY_AGG(DISTINCT CONCAT('0x', encode(v.address, 'hex'))),
+                ARRAY[]::text[]
+            ) as addresses
+        FROM neynar.profiles p
+        LEFT JOIN neynar.verifications v ON v.fid = p.fid
+        WHERE p.fid = :fid
+        GROUP BY p.username
+        """
+        
+        wallets_result = execute_postgres_query(wallets_query, {"fid": fid})
+        
+        username = None
+        linked_wallets = []
+        
+        if wallets_result:
+            username = wallets_result[0].get("username")
+            linked_wallets = wallets_result[0].get("addresses", [])
+            # Filter out any None or empty values
+            linked_wallets = [w.lower() for w in linked_wallets if w]
+        
+        logger.info(f"Found {len(linked_wallets)} linked wallets for FID {fid}")
+        logger.info(f"=== LINKED WALLETS REQUEST END ===")
+        
+        return {
+            "input_address": normalized_address,
+            "fid": fid,
+            "username": username,
+            "linked_wallets": linked_wallets,
+            "count": len(linked_wallets)
+        }
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        logger.error(f"=== ERROR IN LINKED WALLETS ENDPOINT ===")
+        logger.error(f"Exception type: {type(e)}")
+        logger.error(f"Exception message: {str(e)}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
