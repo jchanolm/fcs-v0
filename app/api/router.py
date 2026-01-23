@@ -11,7 +11,8 @@ from app.api.endpoints import (
     farcaster_connections_all,
     clankers, 
     allowlist, 
-    leaderboard
+    leaderboard,
+    wallet_lookup
 )
 
 # Create main router
@@ -26,3 +27,4 @@ router.include_router(farcaster_connections_all.router, tags=["Farcaster Connect
 router.include_router(clankers.router, tags=["Clankers"])
 router.include_router(allowlist.router, tags=["Allowlist"])
 router.include_router(leaderboard.router, tags=["Leaderboards"])
+router.include_router(wallet_lookup.router, tags=["Wallet Lookup"])
