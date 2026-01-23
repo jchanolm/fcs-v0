@@ -20,8 +20,8 @@ PLATFORM_LABELS = {
 
 @router.post(
     "/wallet-lookup",
-    summary="Get wallets for a social account",
-    description="Given a username and platform (farcaster or x), returns all linked Ethereum wallet addresses using graph traversal.",
+    summary="Get wallets for a Farcaster or X account",
+    description="Given a username and platform ('farcaster' or 'x'), returns all linked Ethereum wallet addresses using graph traversal.",
     response_model=WalletLookupResponse,
     responses={
         200: {"description": "Successfully retrieved wallet addresses", "model": WalletLookupResponse},
