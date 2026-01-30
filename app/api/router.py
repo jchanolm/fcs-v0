@@ -4,15 +4,16 @@ API router that includes all endpoint routers.
 """
 from fastapi import APIRouter
 from app.api.endpoints import (
-    tokens, 
-    reputation, 
-    farcaster_users, 
+    tokens,
+    reputation,
+    farcaster_users,
     farcaster_connections,
     farcaster_connections_all,
-    clankers, 
-    allowlist, 
+    clankers,
+    allowlist,
     leaderboard,
-    wallet_lookup
+    wallet_lookup,
+    loan_history
 )
 
 # Create main router
@@ -28,3 +29,4 @@ router.include_router(clankers.router, tags=["Clankers"])
 router.include_router(allowlist.router, tags=["Allowlist"])
 router.include_router(leaderboard.router, tags=["Leaderboards"])
 router.include_router(wallet_lookup.router, tags=["Wallet Lookup"])
+router.include_router(loan_history.router, tags=["Loans"])
